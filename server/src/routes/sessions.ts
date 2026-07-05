@@ -33,12 +33,35 @@ sessionRoutes.post("/", async (c) => {
   const doId = c.env.SSH_SESSION.idFromName(`${user.id}:${sessionId}`);
   const wsUrl = new URL(c.req.url);
   wsUrl.pathname = `/api/v1/sessions/${sessionId}/ws`;
+  const sftpUrl = new URL(c.req.url);
+  sftpUrl.pathname = `/api/v1/sessions/${sessionId}/sftp/ws`;
 
   return c.json({
     sessionId,
     wsUrl: wsUrl.pathname,
+    sftpWsUrl: sftpUrl.pathname,
     status: "created",
   });
+});
+
+sessionRoutes.get("/:id/sftp/ws", async (c) => {
+  const user = c.get("user");
+  const sessionId = c.req.param("id");
+
+  const session = await c.env.DB
+    .prepare(
+      "SELECT id, user_id, server_id, status FROM sessions WHERE id = ? AND user_id = ?",
+    )
+    .bind(sessionId, user.id)
+    .first<{ id: string; user_id: string; server_id: string; status: string }>();
+
+  if (!session) {
+    return jsonError(c, 404, "session not found");
+  }
+
+  const doId = c.env.SSH_SESSION.idFromName(`${user.id}:${sessionId}`);
+  const stub = c.env.SSH_SESSION.get(doId);
+  return stub.fetch(c.req.raw);
 });
 
 sessionRoutes.get("/:id/ws", async (c) => {

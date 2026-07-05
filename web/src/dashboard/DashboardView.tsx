@@ -10,6 +10,7 @@ import {
   type SessionStatus,
 } from "@/lib/sessions";
 import { ServerListWidget } from "@/widgets/ServerListWidget";
+import { FileManagerWidget } from "@/widgets/FileManagerWidget";
 import { TerminalWidget } from "@/widgets/TerminalWidget";
 import type { WidgetContext } from "@/widgets/types";
 import { AddGroupDialog } from "./AddGroupDialog";
@@ -167,6 +168,7 @@ export function DashboardView() {
           serverId,
           sessionId: session.sessionId,
           wsUrl: session.wsUrl,
+          sftpWsUrl: session.sftpWsUrl,
           status: "connecting",
         },
       }));
@@ -377,6 +379,15 @@ export function DashboardView() {
                 activeServerId={activeServerId}
                 onSessionStatusChange={handleSessionStatusChange}
                 onSessionClosed={handleSessionClosed}
+              />
+            );
+          }
+
+          if (widget.type === "file_manager") {
+            return (
+              <FileManagerWidget
+                activeServerId={activeServerId}
+                sessions={sessions}
               />
             );
           }

@@ -36,7 +36,12 @@ export async function ensureDefaultDashboard(
   userId: string,
 ): Promise<DashboardWithWidgets> {
   const existing = await getDefaultDashboard(db, userId);
-  if (existing) return existing;
+  if (existing) {
+    await ensureFileManagerWidget(db, existing);
+    const refreshed = await getDefaultDashboard(db, userId);
+    if (refreshed) return refreshed;
+    return existing;
+  }
 
   const dashboardId = newId();
   const defaultLayout = JSON.stringify([]);
@@ -60,7 +65,15 @@ export async function ensureDefaultDashboard(
       type: "terminal",
       grid_x: 3,
       grid_y: 0,
-      grid_w: 9,
+      grid_w: 6,
+      grid_h: 8,
+      config_json: null,
+    },
+    {
+      type: "file_manager",
+      grid_x: 9,
+      grid_y: 0,
+      grid_w: 3,
       grid_h: 8,
       config_json: null,
     },
@@ -178,4 +191,44 @@ export async function updateDashboard(
   const updated = await getDefaultDashboard(db, userId);
   if (!updated) throw new Error("Failed to update dashboard");
   return updated;
+}
+
+async function ensureFileManagerWidget(
+  db: D1Database,
+  dashboard: DashboardWithWidgets,
+): Promise<void> {
+  if (dashboard.widgets.some((widget) => widget.type === "file_manager")) {
+    return;
+  }
+
+  const statements: D1PreparedStatement[] = [];
+  const terminal = dashboard.widgets.find((widget) => widget.type === "terminal");
+
+  if (terminal && terminal.grid_w > 6) {
+    statements.push(
+      db
+        .prepare("UPDATE dashboard_widgets SET grid_w = 6 WHERE id = ?")
+        .bind(terminal.id),
+    );
+  }
+
+  statements.push(
+    db
+      .prepare(
+        `INSERT INTO dashboard_widgets (id, dashboard_id, type, config_json, grid_x, grid_y, grid_w, grid_h)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        newId(),
+        dashboard.dashboard.id,
+        "file_manager",
+        null,
+        9,
+        0,
+        3,
+        terminal?.grid_h ?? 8,
+      ),
+  );
+
+  await db.batch(statements);
 }

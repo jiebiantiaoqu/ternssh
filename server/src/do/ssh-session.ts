@@ -11,7 +11,10 @@ interface SessionRow {
 }
 
 export class SshSession extends DurableObject<Env> {
-  private sessions = new Map<WebSocket, SSHSession>();
+  private sshSession: SSHSession | null = null;
+  private terminalWs: WebSocket | null = null;
+  private sftpSockets = new Set<WebSocket>();
+  private bootstrapping: Promise<void> | null = null;
 
   async fetch(request: Request): Promise<Response> {
     const upgradeHeader = request.headers.get("Upgrade");
@@ -19,61 +22,78 @@ export class SshSession extends DurableObject<Env> {
       return new Response("Expected WebSocket", { status: 426 });
     }
 
-    const sessionId = parseSessionId(request.url);
-    if (!sessionId) {
+    const parsed = parseRequestUrl(request.url);
+    if (!parsed) {
       return new Response("Invalid session URL", { status: 400 });
     }
 
     const session = await this.env.DB.prepare(
       "SELECT id, user_id, server_id, status FROM sessions WHERE id = ?",
     )
-      .bind(sessionId)
+      .bind(parsed.sessionId)
       .first<SessionRow>();
 
     if (!session) {
       return new Response("Session not found", { status: 404 });
     }
 
-    const server = await getServer(this.env.DB, session.user_id, session.server_id);
-    if (!server) {
+    const pair = new WebSocketPair();
+    const [client, serverWs] = Object.values(pair);
+    this.ctx.acceptWebSocket(serverWs);
+
+    if (parsed.channel === "sftp") {
+      queueMicrotask(() => {
+        void this.attachSftp(serverWs);
+      });
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
+    const serverRecord = await getServer(
+      this.env.DB,
+      session.user_id,
+      session.server_id,
+    );
+    if (!serverRecord) {
       return new Response("Server not found", { status: 404 });
     }
 
     const credential = await getCredentialValue(
       this.env.DB,
       session.user_id,
-      server.credential_ref,
+      serverRecord.credential_ref,
     );
     if (!credential) {
       return new Response("Credential not found", { status: 404 });
     }
 
-    const pair = new WebSocketPair();
-    const [client, serverWs] = Object.values(pair);
-    this.ctx.acceptWebSocket(serverWs);
-
     const config: SSHConnectionConfig = {
-      host: server.host,
-      port: server.port,
-      username: server.username,
-      password: server.auth_type === "password" ? credential : "",
-      authMethod: server.auth_type === "private_key" ? "publickey" : "password",
-      privateKey: server.auth_type === "private_key" ? credential : undefined,
+      host: serverRecord.host,
+      port: serverRecord.port,
+      username: serverRecord.username,
+      password: serverRecord.auth_type === "password" ? credential : "",
+      authMethod:
+        serverRecord.auth_type === "private_key" ? "publickey" : "password",
+      privateKey:
+        serverRecord.auth_type === "private_key" ? credential : undefined,
       cols: 120,
       rows: 40,
     };
 
     queueMicrotask(() => {
-      void this.startSession(serverWs, config);
+      void this.startTerminal(serverWs, config);
     });
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    const session = this.sessions.get(ws);
-    if (session) {
-      await session.handleWebSocketMessage(message);
+    if (this.sftpSockets.has(ws)) {
+      await this.sshSession?.handleSFTPWebSocketMessage(message);
+      return;
+    }
+
+    if (ws === this.terminalWs) {
+      await this.sshSession?.handleWebSocketMessage(message);
     }
   }
 
@@ -83,26 +103,42 @@ export class SshSession extends DurableObject<Env> {
     _reason: string,
     _wasClean: boolean,
   ) {
-    const session = this.sessions.get(ws);
-    session?.close();
-    this.sessions.delete(ws);
+    if (this.sftpSockets.has(ws)) {
+      this.sftpSockets.delete(ws);
+      this.sshSession?.detachSFTPWebSocket(ws, true);
+      return;
+    }
+
+    if (ws === this.terminalWs) {
+      this.terminalWs = null;
+      this.sshSession?.close();
+      this.sshSession = null;
+      this.bootstrapping = null;
+      for (const sftpWs of this.sftpSockets) {
+        try {
+          sftpWs.close(1000, "Terminal session closed");
+        } catch {
+          // ignore
+        }
+      }
+      this.sftpSockets.clear();
+    }
   }
 
-  private async startSession(
+  private async startTerminal(
     ws: WebSocket,
     config: SSHConnectionConfig,
   ): Promise<void> {
-    try {
-      const { connect } = await import("cloudflare:sockets");
-      const hostname = config.host.includes(":")
-        ? `[${config.host}]`
-        : config.host;
-      const socket = connect({ hostname, port: config.port });
-      await socket.opened;
+    this.terminalWs = ws;
 
-      const session = new SSHSession(ws, socket, config, false, false);
-      this.sessions.set(ws, session);
-      await session.startHandshake();
+    if (this.sshSession) {
+      this.sshSession.close();
+      this.sshSession = null;
+    }
+
+    try {
+      await this.ensureSshSession(ws, config);
+      await this.bootstrapping;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "SSH connection failed";
@@ -112,11 +148,89 @@ export class SshSession extends DurableObject<Env> {
       } catch {
         // ignore
       }
+      this.terminalWs = null;
+      this.sshSession = null;
+      this.bootstrapping = null;
     }
+  }
+
+  private async attachSftp(ws: WebSocket): Promise<void> {
+    const deadline = Date.now() + 30_000;
+
+    while (Date.now() < deadline) {
+      if (this.bootstrapping) {
+        try {
+          await this.bootstrapping;
+        } catch {
+          break;
+        }
+      }
+
+      if (this.sshSession?.isSSHReady()) {
+        this.sftpSockets.add(ws);
+        this.sshSession.attachSFTPWebSocket(ws);
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "sftp_error",
+          operation: "init",
+          message: this.sshSession
+            ? "SSH 连接未就绪，请稍后重试"
+            : "请先连接终端会话",
+        }),
+      );
+      ws.close(1013, "SSH session not ready");
+    } catch {
+      // ignore
+    }
+  }
+
+  private async ensureSshSession(
+    ws: WebSocket,
+    config: SSHConnectionConfig,
+  ): Promise<void> {
+    if (this.sshSession && this.bootstrapping) {
+      await this.bootstrapping;
+      return;
+    }
+
+    if (this.sshSession) return;
+
+    this.bootstrapping = (async () => {
+      const { connect } = await import("cloudflare:sockets");
+      const hostname = config.host.includes(":")
+        ? `[${config.host}]`
+        : config.host;
+      const socket = connect({ hostname, port: config.port });
+      await socket.opened;
+
+      const session = new SSHSession(ws, socket, config, false, false);
+      this.sshSession = session;
+      await session.startHandshake();
+    })();
+
+    await this.bootstrapping;
+    this.bootstrapping = null;
   }
 }
 
-function parseSessionId(url: string): string | null {
-  const match = new URL(url).pathname.match(/\/sessions\/([^/]+)\/ws$/);
-  return match?.[1] ?? null;
+function parseRequestUrl(
+  url: string,
+): { sessionId: string; channel: "terminal" | "sftp" } | null {
+  const pathname = new URL(url).pathname;
+  const sftpMatch = pathname.match(/\/sessions\/([^/]+)\/sftp\/ws$/);
+  if (sftpMatch?.[1]) {
+    return { sessionId: sftpMatch[1], channel: "sftp" };
+  }
+  const terminalMatch = pathname.match(/\/sessions\/([^/]+)\/ws$/);
+  if (terminalMatch?.[1]) {
+    return { sessionId: terminalMatch[1], channel: "terminal" };
+  }
+  return null;
 }

@@ -157,6 +157,10 @@ export class SSHSession {
     }
   }
 
+  isSSHReady(): boolean {
+    return this.state === 'ready';
+  }
+
   private async startReading(): Promise<void> {
     const reader = this.socket.readable.getReader();
 
@@ -1324,8 +1328,11 @@ export class SSHSession {
 
   private async openSFTPChannel(): Promise<void> {
     if (this.sftpHandler) {
-      this.sendSFTPError('init', 'SFTP 已经打开');
-      return;
+      if (this.sftpHandler.isReady()) {
+        this.sendSFTPJSON({ type: 'sftp_ready' });
+        return;
+      }
+      this.closeSFTPChannel();
     }
 
     const channelID = this.nextChannelID++;

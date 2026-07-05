@@ -153,11 +153,13 @@ export const api = {
       body: JSON.stringify(body),
     }),
   createSession: (serverId: string) =>
-    request<{ sessionId: string; wsUrl: string; status: string }>(
-      "/api/v1/sessions",
-      {
-        method: "POST",
-        body: JSON.stringify({ serverId }),
-      },
-    ),
+    request<{
+      sessionId: string;
+      wsUrl: string;
+      sftpWsUrl: string;
+      status: string;
+    }>("/api/v1/sessions", {
+      method: "POST",
+      body: JSON.stringify({ serverId }),
+    }),
 };

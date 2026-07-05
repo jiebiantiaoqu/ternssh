@@ -4,6 +4,7 @@ export interface ServerSession {
   serverId: string;
   sessionId: string;
   wsUrl: string;
+  sftpWsUrl: string;
   status: SessionStatus;
 }
 
