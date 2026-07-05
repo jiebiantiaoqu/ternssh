@@ -1,13 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderPlus, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api, type Dashboard, type TreeNode } from "@/lib/api";
+import {
+  isSessionAlive,
+  SESSION_STATUS_LABEL,
+  type ServerSession,
+  type SessionStatus,
+} from "@/lib/sessions";
 import { ServerListWidget } from "@/widgets/ServerListWidget";
 import { TerminalWidget } from "@/widgets/TerminalWidget";
 import type { WidgetContext } from "@/widgets/types";
 import { AddGroupDialog } from "./AddGroupDialog";
 import { AddServerDialog } from "./AddServerDialog";
+import { RenameGroupDialog } from "./RenameGroupDialog";
 import { GridDashboard } from "./GridDashboard";
 import { layoutsEqual, type GridItem } from "./grid-utils";
 
@@ -59,11 +66,17 @@ export function DashboardView() {
   const [loading, setLoading] = useState(true);
   const [treeMoving, setTreeMoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
-  const [sessionWsUrl, setSessionWsUrl] = useState<string | null>(null);
-  const [terminalStatus, setTerminalStatus] = useState("idle");
+  const [activeServerId, setActiveServerId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<Record<string, ServerSession>>({});
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
   const [addOpen, setAddOpen] = useState(false);
+  const [addGroupId, setAddGroupId] = useState<string | null>(null);
   const [groupOpen, setGroupOpen] = useState(false);
+  const [groupParentId, setGroupParentId] = useState<string | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameGroupId, setRenameGroupId] = useState<string | null>(null);
+  const [renameGroupName, setRenameGroupName] = useState("");
   const dashboardRef = useRef<Dashboard | null>(null);
   const persistTimerRef = useRef<number | null>(null);
   const isEditingRef = useRef(false);
@@ -102,19 +115,92 @@ export function DashboardView() {
     };
   }, []);
 
-  const widgetContext: WidgetContext = {
-    selectedServerId,
-    onSelectServer: setSelectedServerId,
-    onConnectServer: async (serverId) => {
-      setSelectedServerId(serverId);
-      try {
-        const session = await api.createSession(serverId);
-        setSessionWsUrl(session.wsUrl);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "创建会话失败");
-      }
+  const handleSessionStatusChange = useCallback(
+    (serverId: string, status: SessionStatus) => {
+      setSessions((current) => {
+        const session = current[serverId];
+        if (!session || session.status === status) return current;
+        return {
+          ...current,
+          [serverId]: { ...session, status },
+        };
+      });
     },
-  };
+    [],
+  );
+
+  const handleSessionClosed = useCallback((serverId: string) => {
+    setSessions((current) => {
+      const session = current[serverId];
+      if (!session) return current;
+      return {
+        ...current,
+        [serverId]: { ...session, status: "closed" },
+      };
+    });
+  }, []);
+
+  const handleDisconnectServer = useCallback((serverId: string) => {
+    setSessions((current) => {
+      const next = { ...current };
+      delete next[serverId];
+      setActiveServerId((active) => {
+        if (active !== serverId) return active;
+        return Object.keys(next)[0] ?? null;
+      });
+      return next;
+    });
+  }, []);
+
+  const handleConnectServer = useCallback(async (serverId: string) => {
+    setActiveServerId(serverId);
+    const existing = sessionsRef.current[serverId];
+    if (existing && isSessionAlive(existing.status)) {
+      return;
+    }
+
+    try {
+      const session = await api.createSession(serverId);
+      setSessions((current) => ({
+        ...current,
+        [serverId]: {
+          serverId,
+          sessionId: session.sessionId,
+          wsUrl: session.wsUrl,
+          status: "connecting",
+        },
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "创建会话失败");
+    }
+  }, []);
+
+  const widgetContext = useMemo(
+    () => ({
+      activeServerId,
+      sessions,
+      onSelectServer: setActiveServerId,
+      onConnectServer: (serverId: string) => {
+        void handleConnectServer(serverId);
+      },
+      onDisconnectServer: handleDisconnectServer,
+    }),
+    [activeServerId, sessions, handleConnectServer, handleDisconnectServer],
+  );
+
+  const sessionList = useMemo(
+    () => Object.values(sessions),
+    [sessions],
+  );
+
+  const terminalBadge = useMemo(() => {
+    const active = activeServerId ? sessions[activeServerId] : null;
+    if (!active) {
+      const openCount = sessionList.filter((item) => item.status === "open").length;
+      return openCount > 0 ? `${openCount} 个会话` : "idle";
+    }
+    return SESSION_STATUS_LABEL[active.status] ?? active.status;
+  }, [activeServerId, sessionList, sessions]);
 
   const handleLayoutChange = useCallback((nextLayout: GridItem[]) => {
     isEditingRef.current = true;
@@ -146,10 +232,10 @@ export function DashboardView() {
   }, []);
 
   const handleDeleteServer = async (serverId: string) => {
+    handleDisconnectServer(serverId);
     await api.deleteServer(serverId);
-    if (selectedServerId === serverId) {
-      setSelectedServerId(null);
-      setSessionWsUrl(null);
+    if (activeServerId === serverId) {
+      setActiveServerId(null);
     }
     await load();
   };
@@ -223,7 +309,10 @@ export function DashboardView() {
                   className="widget-no-drag"
                   size="sm"
                   variant="secondary"
-                  onClick={() => setGroupOpen(true)}
+                  onClick={() => {
+                    setGroupParentId(null);
+                    setGroupOpen(true);
+                  }}
                 >
                   <FolderPlus className="mr-1 h-3 w-3" />
                   分组
@@ -232,7 +321,10 @@ export function DashboardView() {
                   className="widget-no-drag"
                   size="sm"
                   variant="secondary"
-                  onClick={() => setAddOpen(true)}
+                  onClick={() => {
+                    setAddGroupId(null);
+                    setAddOpen(true);
+                  }}
                 >
                   <Plus className="mr-1 h-3 w-3" />
                   添加
@@ -242,7 +334,7 @@ export function DashboardView() {
           }
 
           if (widget.type === "terminal") {
-            return <Badge>{terminalStatus}</Badge>;
+            return <Badge>{terminalBadge}</Badge>;
           }
 
           return null;
@@ -261,6 +353,19 @@ export function DashboardView() {
                 onDeleteServer={(serverId) => void handleDeleteServer(serverId)}
                 onDeleteGroup={(groupId) => void handleDeleteGroup(groupId)}
                 onMoveItem={handleMoveItem}
+                onAddServer={(groupId) => {
+                  setAddGroupId(groupId);
+                  setAddOpen(true);
+                }}
+                onAddGroup={(parentId) => {
+                  setGroupParentId(parentId);
+                  setGroupOpen(true);
+                }}
+                onRenameGroup={(groupId, name) => {
+                  setRenameGroupId(groupId);
+                  setRenameGroupName(name);
+                  setRenameOpen(true);
+                }}
               />
             );
           }
@@ -268,9 +373,10 @@ export function DashboardView() {
           if (widget.type === "terminal") {
             return (
               <TerminalWidget
-                context={widgetContext}
-                sessionWsUrl={sessionWsUrl}
-                onStatusChange={setTerminalStatus}
+                sessions={sessionList}
+                activeServerId={activeServerId}
+                onSessionStatusChange={handleSessionStatusChange}
+                onSessionClosed={handleSessionClosed}
               />
             );
           }
@@ -286,8 +392,10 @@ export function DashboardView() {
       <AddServerDialog
         open={addOpen}
         onOpenChange={setAddOpen}
+        groupId={addGroupId}
         onCreated={async () => {
           setAddOpen(false);
+          setAddGroupId(null);
           await load();
         }}
       />
@@ -295,8 +403,23 @@ export function DashboardView() {
       <AddGroupDialog
         open={groupOpen}
         onOpenChange={setGroupOpen}
+        parentId={groupParentId}
         onCreated={async () => {
           setGroupOpen(false);
+          setGroupParentId(null);
+          await load();
+        }}
+      />
+
+      <RenameGroupDialog
+        open={renameOpen}
+        groupId={renameGroupId}
+        initialName={renameGroupName}
+        onOpenChange={setRenameOpen}
+        onRenamed={async () => {
+          setRenameOpen(false);
+          setRenameGroupId(null);
+          setRenameGroupName("");
           await load();
         }}
       />

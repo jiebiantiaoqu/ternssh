@@ -62,6 +62,48 @@ export function countGroupChildren(nodes: TreeNode[], groupId: string): number {
   return walk(nodes) ?? 0;
 }
 
+export function collectAllGroupIds(nodes: TreeNode[]): string[] {
+  const ids: string[] = [];
+  const walk = (items: TreeNode[]) => {
+    for (const item of items) {
+      if (item.type === "group") {
+        ids.push(item.id);
+        walk(item.children);
+      }
+    }
+  };
+  walk(nodes);
+  return ids;
+}
+
+export function collectAncestorGroupIds(
+  nodes: TreeNode[],
+  targetId: string,
+  targetType: "server" | "group",
+): string[] {
+  const path: string[] = [];
+
+  const walk = (items: TreeNode[], ancestors: string[]): boolean => {
+    for (const item of items) {
+      if (item.type === "group") {
+        const next = [...ancestors, item.id];
+        if (targetType === "group" && item.id === targetId) {
+          path.push(...ancestors);
+          return true;
+        }
+        if (walk(item.children, next)) return true;
+      } else if (targetType === "server" && item.id === targetId) {
+        path.push(...ancestors);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  walk(nodes, []);
+  return path;
+}
+
 export function isGroupDescendant(
   nodes: TreeNode[],
   groupId: string,

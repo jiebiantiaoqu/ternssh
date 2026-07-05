@@ -1,6 +1,8 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
+import type { ServerSession } from "@/lib/sessions";
+import { cn } from "@/lib/utils";
 import type { TerminalWidgetProps } from "./types";
 import "@xterm/xterm/css/xterm.css";
 
@@ -38,23 +40,27 @@ function parseControlMessage(data: string): {
   }
 }
 
-export function TerminalWidget({
-  sessionWsUrl,
-  context,
+interface SessionPaneProps {
+  session: ServerSession;
+  active: boolean;
+  onStatusChange: (status: ServerSession["status"]) => void;
+  onClosed: () => void;
+}
+
+function SessionPane({
+  session,
+  active,
   onStatusChange,
-}: TerminalWidgetProps) {
+  onClosed,
+}: SessionPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const [status, setStatus] = useState<"idle" | "connecting" | "open" | "closed">(
-    "idle",
-  );
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    onStatusChange?.(status);
-  }, [onStatusChange, status]);
+  const onStatusChangeRef = useRef(onStatusChange);
+  const onClosedRef = useRef(onClosed);
+  onStatusChangeRef.current = onStatusChange;
+  onClosedRef.current = onClosed;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -74,16 +80,34 @@ export function TerminalWidget({
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(container);
-    fitAddon.fit();
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit();
-      const ws = wsRef.current;
+    return () => {
+      terminal.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
+    };
+  }, [session.serverId]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}${session.wsUrl}`);
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+    onStatusChangeRef.current("connecting");
+    terminal.reset();
+    terminal.writeln("正在连接 SSH 会话...");
+
+    const sendResize = () => {
+      const fitAddon = fitAddonRef.current;
       const term = terminalRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN || !term) return;
+      if (!fitAddon || !term || ws.readyState !== WebSocket.OPEN) return;
+      fitAddon.fit();
       ws.send(
         JSON.stringify({
           type: "resize",
@@ -91,67 +115,21 @@ export function TerminalWidget({
           rows: term.rows,
         }),
       );
-    });
-    resizeObserver.observe(container);
-
-    return () => {
-      resizeObserver.disconnect();
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!sessionWsUrl) {
-      setStatus("idle");
-      setError(null);
-      wsRef.current?.close();
-      wsRef.current = null;
-      terminal?.clear();
-      return;
-    }
-    if (!terminal) return;
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}${sessionWsUrl}`);
-    ws.binaryType = "arraybuffer";
-    wsRef.current = ws;
-    setStatus("connecting");
-    setError(null);
-    terminal.reset();
-    terminal.writeln("正在连接 SSH 会话...");
-
-    const sendResize = () => {
-      const fitAddon = fitAddonRef.current;
-      const term = terminalRef.current;
-      if (!fitAddon || !term) return;
-      fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "resize",
-            cols: term.cols,
-            rows: term.rows,
-          }),
-        );
-      }
     };
 
     ws.onopen = () => {
-      setStatus("open");
+      onStatusChangeRef.current("open");
       sendResize();
     };
 
     ws.onclose = () => {
-      setStatus("closed");
+      onStatusChangeRef.current("closed");
       terminal.writeln("\r\n会话已断开。");
+      onClosedRef.current();
     };
 
     ws.onerror = () => {
-      setStatus("closed");
-      setError("WebSocket 连接失败");
+      onStatusChangeRef.current("error");
       terminal.writeln("\r\nWebSocket 连接失败。");
     };
 
@@ -162,7 +140,7 @@ export function TerminalWidget({
         const control = parseControlMessage(data);
         if (control) {
           if (control.kind === "error") {
-            setError(control.message ?? "连接失败");
+            onStatusChangeRef.current("error");
             terminal.writeln(`\r\n${control.message ?? "连接失败"}`);
             return;
           }
@@ -189,22 +167,73 @@ export function TerminalWidget({
       ws.close();
       wsRef.current = null;
     };
-  }, [sessionWsUrl]);
+  }, [session.wsUrl, session.serverId]);
+
+  useEffect(() => {
+    if (!active) return;
+    const fitAddon = fitAddonRef.current;
+    const ws = wsRef.current;
+    const terminal = terminalRef.current;
+    if (!fitAddon || !terminal) return;
+
+    fitAddon.fit();
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "resize",
+          cols: terminal.cols,
+          rows: terminal.rows,
+        }),
+      );
+    }
+  }, [active]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-3">
-      {!context.selectedServerId && !sessionWsUrl && (
+    <div
+      ref={containerRef}
+      className={cn(
+        "absolute inset-0 overflow-hidden bg-[#0a0a0a] p-1",
+        !active && "invisible pointer-events-none",
+      )}
+    />
+  );
+}
+
+export function TerminalWidget({
+  sessions,
+  activeServerId,
+  onSessionStatusChange,
+  onSessionClosed,
+  onStatusChange,
+}: TerminalWidgetProps) {
+  const activeSession = sessions.find(
+    (session) => session.serverId === activeServerId,
+  );
+
+  useEffect(() => {
+    onStatusChange?.(activeSession?.status ?? "idle");
+  }, [activeSession?.status, onStatusChange]);
+
+  return (
+    <div className="relative flex h-full min-h-0 flex-col p-3">
+      {sessions.length === 0 && (
         <p className="mb-2 text-sm text-[var(--color-muted-foreground)]">
-          选择服务器并点击连接以打开会话。
+          选择服务器并连接以打开会话。已连接的会话可在列表中切换。
         </p>
       )}
-      {error && (
-        <p className="mb-2 text-sm text-red-400">{error}</p>
-      )}
-      <div
-        ref={containerRef}
-        className="min-h-0 flex-1 overflow-hidden bg-[#0a0a0a] p-1"
-      />
+      <div className="relative min-h-0 flex-1">
+        {sessions.map((session) => (
+          <SessionPane
+            key={`${session.serverId}:${session.sessionId}`}
+            session={session}
+            active={session.serverId === activeServerId}
+            onStatusChange={(status) =>
+              onSessionStatusChange(session.serverId, status)
+            }
+            onClosed={() => onSessionClosed(session.serverId)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

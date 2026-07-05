@@ -1,9 +1,11 @@
-import type { TreeNode } from "@/lib/api";
+import type { ServerSession, SessionStatus } from "@/lib/sessions";
 
 export interface WidgetContext {
-  selectedServerId: string | null;
+  activeServerId: string | null;
+  sessions: Record<string, ServerSession>;
   onSelectServer: (serverId: string) => void;
   onConnectServer: (serverId: string) => void;
+  onDisconnectServer: (serverId: string) => void;
 }
 
 export interface WidgetProps {
@@ -11,7 +13,7 @@ export interface WidgetProps {
 }
 
 export interface ServerListWidgetProps extends WidgetProps {
-  tree: TreeNode[];
+  tree: import("@/lib/api").TreeNode[];
   loading: boolean;
   moving: boolean;
   onDeleteServer: (serverId: string) => void;
@@ -22,9 +24,15 @@ export interface ServerListWidgetProps extends WidgetProps {
     parentId: string | null;
     index: number;
   }) => Promise<void>;
+  onAddServer: (groupId: string | null) => void;
+  onAddGroup: (parentId: string | null) => void;
+  onRenameGroup: (groupId: string, name: string) => void;
 }
 
-export interface TerminalWidgetProps extends WidgetProps {
-  sessionWsUrl: string | null;
+export interface TerminalWidgetProps {
+  sessions: ServerSession[];
+  activeServerId: string | null;
+  onSessionStatusChange: (serverId: string, status: SessionStatus) => void;
+  onSessionClosed: (serverId: string) => void;
   onStatusChange?: (status: string) => void;
 }

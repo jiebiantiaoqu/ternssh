@@ -117,6 +117,11 @@ export const api = {
     request<{ ok: boolean }>(`/api/v1/servers/groups/${id}`, {
       method: "DELETE",
     }),
+  updateGroup: (id: string, input: { name?: string; parent_id?: string | null }) =>
+    request<{ group: ServerGroup }>(`/api/v1/servers/groups/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
   moveTreeItem: (input: {
     type: "server" | "group";
     id: string;

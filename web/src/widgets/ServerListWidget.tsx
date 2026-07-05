@@ -1,15 +1,23 @@
-import { useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from "react";
 import {
+  ChevronDown,
   ChevronRight,
   Folder,
+  FolderOpen,
   GripVertical,
   Server,
-  Trash2,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { cn } from "@/lib/utils";
+import type { TreeNode } from "@/lib/api";
 import {
+  isSessionAlive,
+  SESSION_STATUS_LABEL,
+  type SessionStatus,
+} from "@/lib/sessions";
+import {
+  collectAllGroupIds,
+  collectAncestorGroupIds,
   countGroupChildren,
   countTreeNodes,
   DRAG_MIME,
@@ -21,6 +29,15 @@ import {
   type DropIntent,
 } from "@/lib/server-tree";
 import type { ServerListWidgetProps } from "./types";
+
+interface MenuState {
+  x: number;
+  y: number;
+  target:
+    | { kind: "root" }
+    | { kind: "group"; id: string; name: string; expanded: boolean }
+    | { kind: "server"; id: string; name: string };
+}
 
 function dropIntentKey(intent: DropIntent | null): string {
   if (!intent) return "";
@@ -36,16 +53,43 @@ export function ServerListWidget({
   onDeleteServer,
   onDeleteGroup,
   onMoveItem,
+  onAddServer,
+  onAddGroup,
+  onRenameGroup,
 }: ServerListWidgetProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropIntent, setDropIntent] = useState<DropIntent | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+
+  useEffect(() => {
+    if (!context.activeServerId) return;
+    const ancestors = collectAncestorGroupIds(
+      tree,
+      context.activeServerId,
+      "server",
+    );
+    if (ancestors.length === 0) return;
+    setExpanded((current) => {
+      const next = new Set(current);
+      for (const id of ancestors) next.add(id);
+      return next;
+    });
+  }, [context.activeServerId, tree]);
 
   const rows = useMemo(
     () => flattenTree(tree, expanded),
     [tree, expanded],
   );
   const counts = useMemo(() => countTreeNodes(tree), [tree]);
+
+  const expandAll = () => {
+    setExpanded(new Set(collectAllGroupIds(tree)));
+  };
+
+  const collapseAll = () => {
+    setExpanded(new Set());
+  };
 
   const toggleExpanded = (groupId: string) => {
     setExpanded((current) => {
@@ -56,8 +100,117 @@ export function ServerListWidget({
     });
   };
 
+  const openContextMenu = (
+    event: MouseEvent,
+    target: MenuState["target"],
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({ x: event.clientX, y: event.clientY, target });
+  };
+
+  const menuItems = useMemo((): ContextMenuItem[] => {
+    if (!menu) return [];
+
+    if (menu.target.kind === "root") {
+      return [
+        {
+          id: "add-server",
+          label: "添加服务器",
+          onSelect: () => onAddServer(null),
+        },
+        {
+          id: "add-group",
+          label: "新建分组",
+          onSelect: () => onAddGroup(null),
+        },
+        { id: "expand-all", label: "全部展开", onSelect: expandAll },
+        { id: "collapse-all", label: "全部收起", onSelect: collapseAll },
+      ];
+    }
+
+    if (menu.target.kind === "group") {
+      const { id, name, expanded: isOpen } = menu.target;
+      return [
+        {
+          id: "toggle",
+          label: isOpen ? "收起" : "展开",
+          onSelect: () => toggleExpanded(id),
+        },
+        {
+          id: "add-server",
+          label: "添加服务器",
+          onSelect: () => {
+            setExpanded((current) => new Set(current).add(id));
+            onAddServer(id);
+          },
+        },
+        {
+          id: "add-subgroup",
+          label: "新建子分组",
+          onSelect: () => {
+            setExpanded((current) => new Set(current).add(id));
+            onAddGroup(id);
+          },
+        },
+        {
+          id: "rename",
+          label: "重命名",
+          onSelect: () => onRenameGroup(id, name),
+        },
+        {
+          id: "delete",
+          label: "删除分组",
+          danger: true,
+          onSelect: () => onDeleteGroup(id),
+        },
+      ];
+    }
+
+    const { id, name } = menu.target;
+    const session = context.sessions[id];
+    const isActive = context.activeServerId === id;
+    const alive = isSessionAlive(session?.status);
+    const items: ContextMenuItem[] = [];
+
+    if (alive && !isActive) {
+      items.push({
+        id: "switch",
+        label: "切换",
+        onSelect: () => context.onSelectServer(id),
+      });
+    }
+    if (alive) {
+      items.push({
+        id: "disconnect",
+        label: "断开连接",
+        onSelect: () => context.onDisconnectServer(id),
+      });
+    } else {
+      items.push({
+        id: "connect",
+        label: "连接",
+        onSelect: () => void context.onConnectServer(id),
+      });
+    }
+    items.push({
+      id: "select",
+      label: "选择",
+      onSelect: () => context.onSelectServer(id),
+    });
+    items.push({
+      id: "delete",
+      label: "删除",
+      danger: true,
+      onSelect: () => onDeleteServer(id),
+    });
+    return items;
+  }, [menu, context, onAddGroup, onAddServer, onDeleteGroup, onDeleteServer, onRenameGroup]);
+
   const canDrop = (item: DragItem, intent: DropIntent): boolean => {
-    if (item.type === "group" && item.id === intent.groupId) return false;
+    if (item.type === "group" && intent.kind === "into" && item.id === intent.groupId) {
+      return false;
+    }
     if (
       item.type === "group" &&
       intent.kind === "into" &&
@@ -130,101 +283,173 @@ export function ServerListWidget({
     });
   };
 
+  const sessionStatusClass = (status: SessionStatus | undefined) => {
+    if (status === "open") return "bg-[var(--color-primary)]";
+    if (status === "connecting") return "bg-amber-400";
+    if (status === "error") return "bg-red-400";
+    if (status === "closed") return "bg-[var(--color-muted-foreground)]";
+    return "bg-transparent";
+  };
+
+  const renderNodeLabel = (node: TreeNode, isOpen: boolean) => {
+    if (node.type === "group") {
+      const Icon = isOpen ? FolderOpen : Folder;
+      return (
+        <>
+          <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+          <span className="truncate font-medium">{node.name}</span>
+          <span className="ml-auto shrink-0 text-xs text-[var(--color-muted-foreground)]">
+            {node.children.length}
+          </span>
+        </>
+      );
+    }
+
+    const session = context.sessions[node.id];
+    const status = session?.status;
+
+    return (
+      <>
+        <span
+          className={cn(
+            "h-2 w-2 shrink-0 rounded-full",
+            sessionStatusClass(status),
+          )}
+          title={status ? SESSION_STATUS_LABEL[status] : undefined}
+        />
+        <Server className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 truncate">
+            <span className="truncate">{node.name}</span>
+            {status && (
+              <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">
+                {SESSION_STATUS_LABEL[status]}
+              </span>
+            )}
+          </div>
+          <div className="truncate text-xs text-[var(--color-muted-foreground)]">
+            {node.username}@{node.host}:{node.port}
+          </div>
+        </div>
+      </>
+    );
+  };
+
   return (
-    <div
-      className="widget-no-drag flex h-full flex-col overflow-auto p-3"
-      onDragOver={handleRootDragOver}
-      onDrop={(event) => {
-        if (dropIntent?.kind === "before" && dropIntent.parentId === null) {
-          void handleDrop(event, dropIntent);
-        }
-      }}
-    >
-      {loading && (
-        <p className="text-sm text-[var(--color-muted-foreground)]">加载中...</p>
-      )}
-      {!loading && counts.servers === 0 && counts.groups === 0 && (
-        <p className="text-sm text-[var(--color-muted-foreground)]">
-          还没有服务器，点击添加开始。
-        </p>
-      )}
-      {moving && (
-        <p className="mb-2 text-xs text-[var(--color-muted-foreground)]">
-          正在更新顺序...
-        </p>
-      )}
+    <>
+      <div
+        className="widget-no-drag flex h-full flex-col overflow-auto p-2"
+        onContextMenu={(event) => openContextMenu(event, { kind: "root" })}
+        onDragOver={handleRootDragOver}
+        onDrop={(event) => {
+          if (dropIntent?.kind === "before" && dropIntent.parentId === null) {
+            void handleDrop(event, dropIntent);
+          }
+        }}
+      >
+        {loading && (
+          <p className="px-2 py-1 text-sm text-[var(--color-muted-foreground)]">
+            加载中...
+          </p>
+        )}
+        {!loading && counts.servers === 0 && counts.groups === 0 && (
+          <p className="px-2 py-1 text-sm text-[var(--color-muted-foreground)]">
+            还没有服务器，右键可添加。
+          </p>
+        )}
+        {moving && (
+          <p className="mb-1 px-2 text-xs text-[var(--color-muted-foreground)]">
+            正在更新顺序...
+          </p>
+        )}
 
-      <div className="space-y-1">
-        {rows.map((row) => {
-          const { node, depth, parentId, index } = row;
-          const isGroup = node.type === "group";
-          const isExpanded = isGroup && expanded.has(node.id);
-          const selected =
-            !isGroup && context.selectedServerId === node.id;
-          const beforeIntent: DropIntent = {
-            kind: "before",
-            parentId,
-            index,
-          };
-          const intoIntent: DropIntent = isGroup
-            ? { kind: "into", groupId: node.id }
-            : beforeIntent;
-          const showBeforeDrop =
-            dropIntent && dropIntentKey(dropIntent) === dropIntentKey(beforeIntent);
-          const showIntoDrop =
-            isGroup &&
-            dropIntent &&
-            dropIntentKey(dropIntent) === dropIntentKey(intoIntent);
+        <div className="min-h-0 flex-1">
+          {rows.map((row) => {
+            const { node, depth, parentId, index } = row;
+            const isGroup = node.type === "group";
+            const isOpen = isGroup && expanded.has(node.id);
+            const isActive = !isGroup && context.activeServerId === node.id;
+            const session = !isGroup ? context.sessions[node.id] : undefined;
+            const connected = isSessionAlive(session?.status);
+            const beforeIntent: DropIntent = {
+              kind: "before",
+              parentId,
+              index,
+            };
+            const intoIntent: DropIntent = isGroup
+              ? { kind: "into", groupId: node.id }
+              : beforeIntent;
+            const showBeforeDrop =
+              dropIntent &&
+              dropIntentKey(dropIntent) === dropIntentKey(beforeIntent);
+            const showIntoDrop =
+              isGroup &&
+              dropIntent &&
+              dropIntentKey(dropIntent) === dropIntentKey(intoIntent);
 
-          return (
-            <div key={`${node.type}:${node.id}`}>
-              <div
-                className={cn(
-                  "relative h-1 transition-colors",
-                  showBeforeDrop && "bg-[var(--color-primary)]",
-                )}
-                onDragOver={(event) => {
-                  if (!event.dataTransfer.types.includes(DRAG_MIME)) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const item = dragItem ?? readDragItem(event.dataTransfer);
-                  if (!item || !canDrop(item, beforeIntent)) return;
-                  event.dataTransfer.dropEffect = "move";
-                  setDropIntent(beforeIntent);
-                }}
-                onDrop={(event) => void handleDrop(event, beforeIntent)}
-              />
+            return (
+              <div key={`${node.type}:${node.id}`}>
+                <div
+                  className={cn(
+                    "relative h-0.5 transition-colors",
+                    showBeforeDrop && "bg-[var(--color-primary)]",
+                  )}
+                  onDragOver={(event) => {
+                    if (!event.dataTransfer.types.includes(DRAG_MIME)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const item = dragItem ?? readDragItem(event.dataTransfer);
+                    if (!item || !canDrop(item, beforeIntent)) return;
+                    event.dataTransfer.dropEffect = "move";
+                    setDropIntent(beforeIntent);
+                  }}
+                  onDrop={(event) => void handleDrop(event, beforeIntent)}
+                />
 
-              <div
-                className={cn(
-                  "transition-colors",
-                  selected && "bg-[var(--color-secondary)]",
-                  showIntoDrop && "bg-[var(--color-secondary)]/60",
-                )}
-                style={{ marginLeft: depth * 14 }}
-                onDragOver={
-                  isGroup
-                    ? (event) => {
-                        if (!event.dataTransfer.types.includes(DRAG_MIME)) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        const item = dragItem ?? readDragItem(event.dataTransfer);
-                        if (!item || !canDrop(item, intoIntent)) return;
-                        event.dataTransfer.dropEffect = "move";
-                        setDropIntent(intoIntent);
-                      }
-                    : undefined
-                }
-                onDrop={
-                  isGroup
-                    ? (event) => void handleDrop(event, intoIntent)
-                    : undefined
-                }
-              >
-                <div className="flex items-start gap-1 p-2">
+                <div
+                  className={cn(
+                    "group flex items-center gap-1 py-0.5 pr-1 transition-colors hover:bg-[var(--color-secondary)]/50",
+                    isActive && "bg-[var(--color-secondary)]",
+                    connected && !isActive && "bg-[var(--color-secondary)]/30",
+                    showIntoDrop && "bg-[var(--color-secondary)]/70",
+                  )}
+                  style={{ paddingLeft: depth * 16 + 4 }}
+                  onContextMenu={(event) =>
+                    openContextMenu(
+                      event,
+                      isGroup
+                        ? {
+                            kind: "group",
+                            id: node.id,
+                            name: node.name,
+                            expanded: isOpen,
+                          }
+                        : { kind: "server", id: node.id, name: node.name },
+                    )
+                  }
+                  onDragOver={
+                    isGroup
+                      ? (event) => {
+                          if (!event.dataTransfer.types.includes(DRAG_MIME)) return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const item =
+                            dragItem ?? readDragItem(event.dataTransfer);
+                          if (!item || !canDrop(item, intoIntent)) return;
+                          event.dataTransfer.dropEffect = "move";
+                          setDropIntent(intoIntent);
+                        }
+                      : undefined
+                  }
+                  onDrop={
+                    isGroup
+                      ? (event) => void handleDrop(event, intoIntent)
+                      : undefined
+                  }
+                >
                   <button
                     type="button"
-                    className="widget-no-drag mt-0.5 inline-flex h-7 w-7 shrink-0 cursor-grab items-center justify-center text-[var(--color-muted-foreground)] hover:bg-[var(--color-secondary)] active:cursor-grabbing"
+                    className="widget-no-drag inline-flex h-6 w-5 shrink-0 cursor-grab items-center justify-center text-[var(--color-muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
                     draggable
                     onDragStart={(event) =>
                       handleDragStart(event, {
@@ -235,117 +460,79 @@ export function ServerListWidget({
                     onDragEnd={handleDragEnd}
                     aria-label="拖拽排序"
                   >
-                    <GripVertical className="h-4 w-4" />
+                    <GripVertical className="h-3.5 w-3.5" />
                   </button>
 
                   {isGroup ? (
                     <button
                       type="button"
-                      className="widget-no-drag mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center hover:bg-[var(--color-secondary)]"
+                      className="widget-no-drag inline-flex h-6 w-5 shrink-0 items-center justify-center text-[var(--color-muted-foreground)]"
                       onClick={() => toggleExpanded(node.id)}
-                      aria-label={isExpanded ? "收起分组" : "展开分组"}
+                      aria-label={isOpen ? "收起" : "展开"}
                     >
-                      <ChevronRight
-                        className={cn(
-                          "h-4 w-4 transition-transform",
-                          isExpanded && "rotate-90",
-                        )}
-                      />
+                      {isOpen ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
                     </button>
                   ) : (
-                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center">
-                      <Server className="h-4 w-4 text-[var(--color-muted-foreground)]" />
-                    </div>
+                    <span className="inline-block w-5 shrink-0" />
                   )}
 
-                  <div className="min-w-0 flex-1">
-                    {isGroup ? (
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 truncate font-medium">
-                            <Folder className="h-4 w-4 shrink-0 text-[var(--color-muted-foreground)]" />
-                            <span className="truncate">{node.name}</span>
-                          </div>
-                          <div className="truncate text-xs text-[var(--color-muted-foreground)]">
-                            {node.children.length} 项
-                          </div>
-                        </div>
-                        <Button
-                          className="widget-no-drag"
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => onDeleteGroup(node.id)}
-                          aria-label={`删除分组 ${node.name}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-start justify-between gap-2">
-                          <button
-                            type="button"
-                            className="widget-no-drag min-w-0 flex-1 text-left"
-                            onClick={() => context.onSelectServer(node.id)}
-                          >
-                            <div className="truncate font-medium">{node.name}</div>
-                            <div className="truncate text-xs text-[var(--color-muted-foreground)]">
-                              {node.username}@{node.host}:{node.port}
-                            </div>
-                          </button>
-                          <Button
-                            className="widget-no-drag"
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => onDeleteServer(node.id)}
-                            aria-label={`删除 ${node.name}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <Badge>{node.auth_type}</Badge>
-                          <Button
-                            className="widget-no-drag"
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => context.onConnectServer(node.id)}
-                          >
-                            连接
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    className="widget-no-drag flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
+                    onClick={() => {
+                      if (isGroup) {
+                        toggleExpanded(node.id);
+                        return;
+                      }
+                      context.onSelectServer(node.id);
+                    }}
+                    onDoubleClick={() => {
+                      if (!isGroup) void context.onConnectServer(node.id);
+                    }}
+                  >
+                    {renderNodeLabel(node, isOpen)}
+                  </button>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {dragItem && (
-          <div
-            className={cn(
-              "mt-1 h-8 text-center text-xs leading-8 text-[var(--color-muted-foreground)]",
-              dropIntent?.kind === "before" &&
-                dropIntent.parentId === null &&
-                dropIntent.index === tree.length &&
-                "bg-[var(--color-secondary)] text-[var(--color-primary)]",
-            )}
-            onDragOver={handleRootDragOver}
-            onDrop={(event) => {
-              const intent: DropIntent = {
-                kind: "before",
-                parentId: null,
-                index: tree.length,
-              };
-              void handleDrop(event, intent);
-            }}
-          >
-            拖到此处移至根目录
-          </div>
-        )}
+          {dragItem && (
+            <div
+              className={cn(
+                "mt-1 h-7 text-center text-xs leading-7 text-[var(--color-muted-foreground)]",
+                dropIntent?.kind === "before" &&
+                  dropIntent.parentId === null &&
+                  dropIntent.index === tree.length &&
+                  "bg-[var(--color-secondary)] text-[var(--color-primary)]",
+              )}
+              onDragOver={handleRootDragOver}
+              onDrop={(event) => {
+                const intent: DropIntent = {
+                  kind: "before",
+                  parentId: null,
+                  index: tree.length,
+                };
+                void handleDrop(event, intent);
+              }}
+            >
+              拖到此处移至根目录
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+
+      <ContextMenu
+        open={menu !== null}
+        x={menu?.x ?? 0}
+        y={menu?.y ?? 0}
+        items={menuItems}
+        onClose={() => setMenu(null)}
+      />
+    </>
   );
 }

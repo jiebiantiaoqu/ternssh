@@ -7,12 +7,14 @@ import { api } from "@/lib/api";
 interface AddServerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  groupId?: string | null;
   onCreated: () => Promise<void>;
 }
 
 export function AddServerDialog({
   open,
   onOpenChange,
+  groupId = null,
   onCreated,
 }: AddServerDialogProps) {
   const [name, setName] = useState("");
@@ -50,6 +52,7 @@ export function AddServerDialog({
         username,
         auth_type: authType,
         credential,
+        group_id: groupId,
       });
       reset();
       await onCreated();
