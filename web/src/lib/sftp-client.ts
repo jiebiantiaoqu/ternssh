@@ -522,7 +522,8 @@ export async function collectDroppedFiles(
   };
 
   if (items && items.length > 0) {
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       if (item.kind !== "file") continue;
       const entry = item.webkitGetAsEntry?.();
       if (entry) {
@@ -537,7 +538,8 @@ export async function collectDroppedFiles(
     return results;
   }
 
-  for (const file of dataTransfer.files) {
+  for (let i = 0; i < dataTransfer.files.length; i++) {
+    const file = dataTransfer.files[i];
     results.push({ file, relativePath: file.name });
   }
   return results;

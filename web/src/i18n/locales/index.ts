@@ -24,6 +24,7 @@ export const SUPPORTED_LOCALES: LocaleDefinition[] = [
   },
 ];
 
+export type { Messages } from "./zh";
 export type Locale = (typeof SUPPORTED_LOCALES)[number]["id"];
 
 const localeById = new Map(SUPPORTED_LOCALES.map((item) => [item.id, item]));

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FolderPlus, ChevronsDown, ChevronsUp, Plus, Settings, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,6 @@ import { FileManagerWidget } from "@/widgets/FileManagerWidget";
 import { QuickCommandsWidget } from "@/widgets/QuickCommandsWidget";
 import { StatusWidget } from "@/widgets/StatusWidget";
 import { TerminalWidget } from "@/widgets/TerminalWidget";
-import type { WidgetContext } from "@/widgets/types";
 import { AddGroupDialog } from "./AddGroupDialog";
 import { AddQuickCommandDialog } from "./AddQuickCommandDialog";
 import { AddServerDialog } from "./AddServerDialog";

@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from "react";
 import type { ServerSession, SessionStatus } from "@/lib/sessions";
 
 export interface WidgetContext {
@@ -28,7 +29,7 @@ export interface ServerListWidgetProps extends WidgetProps {
   onAddGroup: (parentId: string | null) => void;
   onRenameGroup: (groupId: string, name: string) => void;
   expanded: Set<string>;
-  onExpandedChange: (expanded: Set<string>) => void;
+  onExpandedChange: Dispatch<SetStateAction<Set<string>>>;
 }
 
 export interface TerminalWidgetProps {
