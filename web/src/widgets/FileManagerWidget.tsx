@@ -48,6 +48,7 @@ export function FileManagerWidget({
 }: FileManagerWidgetProps) {
   const session = activeServerId ? sessions[activeServerId] : null;
   const clientRef = useRef<SftpClient | null>(null);
+  const mountedRef = useRef(true);
   const [remotePath, setRemotePath] = useState(".");
   const [pathInput, setPathInput] = useState(".");
   const [entries, setEntries] = useState<SftpEntry[]>([]);
@@ -59,7 +60,24 @@ export function FileManagerWidget({
 
   const sortedEntries = useMemo(() => sortSftpEntries(entries), [entries]);
 
+  const disconnectClient = useCallback(() => {
+    clientRef.current?.disconnect();
+    clientRef.current = null;
+  }, []);
+
+  const isActive = useCallback(() => mountedRef.current, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      disconnectClient();
+    };
+  }, [disconnectClient]);
+
   const loadDirectory = useCallback(async (path: string) => {
+    if (!isActive()) return;
+
     const client = clientRef.current;
     if (!client) return;
 
@@ -67,27 +85,30 @@ export function FileManagerWidget({
     setError(null);
     try {
       const result = await client.list(path);
+      if (!isActive()) return;
       setRemotePath(result.path);
       setPathInput(result.path);
       setEntries(result.entries);
       setSelectedName(null);
     } catch (err) {
+      if (!isActive()) return;
       setError(err instanceof Error ? err.message : "读取目录失败");
     } finally {
-      setLoading(false);
+      if (isActive()) setLoading(false);
     }
-  }, []);
+  }, [isActive]);
 
   useEffect(() => {
     if (!session || session.status !== "open") {
-      clientRef.current?.disconnect();
-      clientRef.current = null;
+      disconnectClient();
+      if (!isActive()) return;
       setReady(false);
       setRemotePath(".");
       setPathInput(".");
       setEntries([]);
       setSelectedName(null);
       setError(null);
+      setMenu(null);
       return;
     }
 
@@ -96,20 +117,21 @@ export function FileManagerWidget({
     let cancelled = false;
 
     void (async () => {
+      if (!isActive()) return;
       setLoading(true);
       setError(null);
       setReady(false);
 
       const maxAttempts = 3;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        if (cancelled) return;
+        if (cancelled || !isActive()) return;
 
         try {
           await client.connect(session.sftpWsUrl);
-          if (cancelled) return;
+          if (cancelled || !isActive()) return;
           setReady(true);
           const result = await client.list(".");
-          if (cancelled) return;
+          if (cancelled || !isActive()) return;
           setRemotePath(result.path);
           setPathInput(result.path);
           setEntries(result.entries);
@@ -117,7 +139,7 @@ export function FileManagerWidget({
           setLoading(false);
           return;
         } catch (err) {
-          if (cancelled) return;
+          if (cancelled || !isActive()) return;
           const message = err instanceof Error ? err.message : "SFTP 连接失败";
           const retryable =
             message.includes("未就绪") ||
@@ -150,35 +172,43 @@ export function FileManagerWidget({
     session?.sessionId,
     session?.status,
     session?.sftpWsUrl,
+    disconnectClient,
+    isActive,
   ]);
 
   const navigateTo = (nextPath: string) => {
+    if (!isActive() || !ready) return;
     void loadDirectory(nextPath);
   };
 
   const handleEntryOpen = (entry: SftpEntry) => {
+    if (!isActive() || !ready) return;
     if (entry.isDir) {
       navigateTo(joinRemotePath(remotePath, entry.name));
     }
   };
 
   const handleMkdir = async () => {
+    if (!isActive() || !ready || !clientRef.current) return;
+
     const name = window.prompt("新建文件夹名称");
-    if (!name?.trim() || !clientRef.current) return;
+    if (!name?.trim()) return;
 
     setLoading(true);
     setError(null);
     try {
       await clientRef.current.mkdir(joinRemotePath(remotePath, name.trim()));
+      if (!isActive()) return;
       await loadDirectory(remotePath);
     } catch (err) {
+      if (!isActive()) return;
       setError(err instanceof Error ? err.message : "创建目录失败");
       setLoading(false);
     }
   };
 
   const handleDeleteEntry = async (entry: SftpEntry) => {
-    if (!clientRef.current) return;
+    if (!isActive() || !ready || !clientRef.current) return;
 
     const target = joinRemotePath(remotePath, entry.name);
     const label = entry.isDir ? "文件夹" : "文件";
@@ -186,10 +216,13 @@ export function FileManagerWidget({
 
     setLoading(true);
     setError(null);
+    setMenu(null);
     try {
       await clientRef.current.deletePath(target);
+      if (!isActive()) return;
       await loadDirectory(remotePath);
     } catch (err) {
+      if (!isActive()) return;
       setError(err instanceof Error ? err.message : "删除失败");
       setLoading(false);
     }
@@ -206,6 +239,7 @@ export function FileManagerWidget({
     event: MouseEvent,
     target: MenuState["target"],
   ) => {
+    if (!ready || loading) return;
     event.preventDefault();
     event.stopPropagation();
     if (target.kind === "entry") {

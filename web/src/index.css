@@ -67,9 +67,11 @@ body {
   user-select: none;
 }
 
-.app-status {
+.app-status,
+.app-header-actions {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .workspace {

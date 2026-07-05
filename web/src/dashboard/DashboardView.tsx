@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FolderPlus, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { FolderPlus, Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { api, type Dashboard, type TreeNode } from "@/lib/api";
+import { api, type Dashboard, type MeResponse, type TreeNode } from "@/lib/api";
 import {
   isSessionAlive,
   SESSION_STATUS_LABEL,
@@ -16,15 +16,16 @@ import type { WidgetContext } from "@/widgets/types";
 import { AddGroupDialog } from "./AddGroupDialog";
 import { AddServerDialog } from "./AddServerDialog";
 import { RenameGroupDialog } from "./RenameGroupDialog";
+import { AddWidgetMenu } from "./AddWidgetMenu";
 import { GridDashboard } from "./GridDashboard";
-import { layoutsEqual, type GridItem } from "./grid-utils";
+import { findWidgetPlacement, layoutsEqual, type GridItem } from "./grid-utils";
+import { ADDABLE_WIDGETS, WIDGET_TITLES } from "./widgets";
 
-const WIDGET_TITLES: Record<string, string> = {
-  server_list: "服务器",
-  terminal: "终端",
-  file_manager: "文件管理",
-  status: "状态",
-};
+const DEFAULT_GRID_ITEM = {
+  minW: 2,
+  minH: 3,
+  maxW: 12,
+} as const;
 
 function widgetsToLayout(widgets: Dashboard["widgets"]): GridItem[] {
   return widgets.map((widget) => ({
@@ -33,9 +34,7 @@ function widgetsToLayout(widgets: Dashboard["widgets"]): GridItem[] {
     y: widget.grid_y,
     w: widget.grid_w,
     h: widget.grid_h,
-    minW: 2,
-    minH: 3,
-    maxW: 12,
+    ...DEFAULT_GRID_ITEM,
   }));
 }
 
@@ -61,6 +60,7 @@ function layoutToWidgets(
 }
 
 export function DashboardView() {
+  const [me, setMe] = useState<MeResponse | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [layout, setLayout] = useState<GridItem[]>([]);
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -102,6 +102,10 @@ export function DashboardView() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    void api.getMe().then(setMe).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -204,6 +208,11 @@ export function DashboardView() {
     return SESSION_STATUS_LABEL[active.status] ?? active.status;
   }, [activeServerId, sessionList, sessions]);
 
+  const existingWidgetTypes = useMemo(
+    () => new Set(dashboard?.widgets.map((widget) => widget.type) ?? []),
+    [dashboard?.widgets],
+  );
+
   const handleLayoutChange = useCallback((nextLayout: GridItem[]) => {
     isEditingRef.current = true;
     setLayout((current) =>
@@ -232,6 +241,87 @@ export function DashboardView() {
       })();
     }, 400);
   }, []);
+
+  const handleRemoveWidget = useCallback((widgetId: string) => {
+    const dashboardSnapshot = dashboardRef.current;
+    if (!dashboardSnapshot) return;
+
+    const nextLayout = layout.filter((item) => item.i !== widgetId);
+    if (nextLayout.length === layout.length) return;
+
+    isEditingRef.current = true;
+    setLayout(nextLayout);
+
+    void (async () => {
+      const widgets = layoutToWidgets(dashboardSnapshot, nextLayout);
+      try {
+        const updated = await api.updateDashboard({ widgets });
+        dashboardRef.current = updated;
+        setDashboard(updated);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "删除组件失败");
+        setLayout(widgetsToLayout(dashboardSnapshot.widgets));
+      } finally {
+        isEditingRef.current = false;
+      }
+    })();
+  }, [layout]);
+
+  const handleAddWidget = useCallback((type: string) => {
+    const dashboardSnapshot = dashboardRef.current;
+    if (!dashboardSnapshot) return;
+
+    if (dashboardSnapshot.widgets.some((widget) => widget.type === type)) {
+      setError("该组件已存在，不能重复添加");
+      return;
+    }
+
+    const definition = ADDABLE_WIDGETS.find((widget) => widget.type === type);
+    if (!definition) return;
+
+    const { x, y } = findWidgetPlacement(layout, definition.defaultSize);
+    const widgetId = crypto.randomUUID();
+    const newItem: GridItem = {
+      i: widgetId,
+      x,
+      y,
+      w: definition.defaultSize.w,
+      h: definition.defaultSize.h,
+      ...DEFAULT_GRID_ITEM,
+    };
+    const nextLayout = [...layout, newItem];
+
+    isEditingRef.current = true;
+    setLayout(nextLayout);
+
+    const widgets = [
+      ...layoutToWidgets(dashboardSnapshot, layout),
+      {
+        id: widgetId,
+        dashboard_id: dashboardSnapshot.dashboard.id,
+        type,
+        config_json: null,
+        grid_x: x,
+        grid_y: y,
+        grid_w: definition.defaultSize.w,
+        grid_h: definition.defaultSize.h,
+      },
+    ];
+
+    void (async () => {
+      try {
+        const updated = await api.updateDashboard({ widgets });
+        dashboardRef.current = updated;
+        setDashboard(updated);
+        setLayout(widgetsToLayout(updated.widgets));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "添加组件失败");
+        setLayout(widgetsToLayout(dashboardSnapshot.widgets));
+      } finally {
+        isEditingRef.current = false;
+      }
+    })();
+  }, [layout]);
 
   const handleDeleteServer = async (serverId: string) => {
     handleDisconnectServer(serverId);
@@ -268,26 +358,55 @@ export function DashboardView() {
 
   if (loading && !dashboard) {
     return (
-      <div className="workspace flex items-center justify-center text-sm text-[var(--color-muted-foreground)]">
-        正在加载工作区...
-      </div>
+      <>
+        <header className="workspace-header">
+          <div className="app-brand">ternssh</div>
+        </header>
+        <div className="workspace flex items-center justify-center text-sm text-[var(--color-muted-foreground)]">
+          正在加载工作区...
+        </div>
+      </>
     );
   }
 
   if (error && !dashboard) {
     return (
-      <div className="workspace flex items-center justify-center text-sm text-red-400">
-        {error}
-      </div>
+      <>
+        <header className="workspace-header">
+          <div className="app-brand">ternssh</div>
+        </header>
+        <div className="workspace flex items-center justify-center text-sm text-red-400">
+          {error}
+        </div>
+      </>
     );
   }
 
-  if (!dashboard || layout.length === 0) return null;
+  if (!dashboard) return null;
 
   const widgetById = new Map(dashboard.widgets.map((widget) => [widget.id, widget]));
 
   return (
-    <div className="workspace">
+    <>
+      <header className="workspace-header">
+        <div className="app-brand">ternssh</div>
+        <div className="app-header-actions">
+          <AddWidgetMenu
+            existingTypes={existingWidgetTypes}
+            onAdd={handleAddWidget}
+            disabled={loading}
+          />
+          {me && (
+            <Badge>
+              {me.authMode === "open"
+                ? `开放模式 · ${me.user.display_name ?? "Default"}`
+                : me.user.email ?? me.user.display_name ?? me.user.id}
+            </Badge>
+          )}
+        </div>
+      </header>
+
+      <div className="workspace">
       {error && (
         <div className="workspace-toast text-red-400">{error}</div>
       )}
@@ -337,6 +456,20 @@ export function DashboardView() {
 
           if (widget.type === "terminal") {
             return <Badge>{terminalBadge}</Badge>;
+          }
+
+          if (widget.type === "file_manager") {
+            return (
+              <Button
+                className="widget-no-drag"
+                size="sm"
+                variant="secondary"
+                title="删除组件"
+                onClick={() => handleRemoveWidget(item.i)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            );
           }
 
           return null;
@@ -434,6 +567,7 @@ export function DashboardView() {
           await load();
         }}
       />
-    </div>
+      </div>
+    </>
   );
 }

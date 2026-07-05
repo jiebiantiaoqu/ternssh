@@ -182,3 +182,27 @@ export function containerHeightFromPixels(
   );
   return pixelBottom;
 }
+
+export function findWidgetPlacement(
+  layout: GridItem[],
+  size: { w: number; h: number },
+  cols = 12,
+): { x: number; y: number } {
+  for (let y = 0; y < 200; y++) {
+    for (let x = 0; x <= cols - size.w; x++) {
+      const candidate: GridItem = {
+        i: "__candidate__",
+        x,
+        y,
+        w: size.w,
+        h: size.h,
+      };
+      if (!collidesAny(candidate, layout)) {
+        return { x, y };
+      }
+    }
+  }
+
+  const maxY = layout.reduce((max, item) => Math.max(max, item.y + item.h), 0);
+  return { x: 0, y: maxY };
+}
