@@ -16,6 +16,15 @@ export interface ServerStatusMetrics {
   netTxBytes: number | null;
   netRxRate: number | null;
   netTxRate: number | null;
+  netInterfaces: NetInterfaceMetrics[];
+}
+
+export interface NetInterfaceMetrics {
+  name: string;
+  rxBytes: number;
+  txBytes: number;
+  rxRate: number | null;
+  txRate: number | null;
 }
 
 export interface SessionStatusResponse {

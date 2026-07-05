@@ -42,6 +42,7 @@ export interface NetworkBandwidthChartProps {
   history: BandwidthSample[];
   maxSlots: number;
   pollIntervalMs: number;
+  interfaceLabel?: string;
 }
 
 export function NetworkBandwidthChart({
@@ -50,6 +51,7 @@ export function NetworkBandwidthChart({
   history,
   maxSlots,
   pollIntervalMs,
+  interfaceLabel,
 }: NetworkBandwidthChartProps) {
   const t = useT();
   const historyRxMax = Math.max(...history.map((sample) => sample.rx), 0);
@@ -63,7 +65,7 @@ export function NetworkBandwidthChart({
     <div className="space-y-2">
       <div className="flex items-center justify-between text-[11px]">
         <span className="text-[var(--color-muted-foreground)]">
-          {t("status.bandwidth")}
+          {interfaceLabel ?? t("status.bandwidth")}
         </span>
         <span>
           ↓ {formatBitrate(rxRate)} · ↑ {formatBitrate(txRate)}

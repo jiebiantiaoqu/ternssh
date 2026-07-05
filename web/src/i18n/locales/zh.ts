@@ -206,6 +206,8 @@ export const zh = {
     selectServer: "选择或连接服务器以查看网络状态",
     connectFirst: "请先连接终端会话后再查看网络状态",
     settingsTitle: "网络状态设置",
+    total: "全部",
+    totalBandwidth: "全部网卡",
   },
   quickCommands: {
     hint: "点击命令将在当前选中的服务器终端中执行。",

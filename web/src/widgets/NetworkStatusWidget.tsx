@@ -3,7 +3,10 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n";
 import { api, type Server, type TreeNode } from "@/lib/api";
-import { computeNetRates } from "@/lib/server-status";
+import {
+  type NetInterfaceMetrics,
+  type ServerStatusMetrics,
+} from "@/lib/server-status";
 import { isSessionAlive, type ServerSession } from "@/lib/sessions";
 import {
   BANDWIDTH_HISTORY_MS,
@@ -22,6 +25,8 @@ export interface NetworkStatusWidgetProps {
   tree: TreeNode[];
   pollIntervalMs: number;
 }
+
+const TOTAL_INTERFACE_KEY = "__total__";
 
 function findServer(tree: TreeNode[], serverId: string): Server | null {
   for (const node of tree) {
@@ -44,6 +49,20 @@ function trimBandwidthHistory(
   return samples.filter((sample) => sample.at >= cutoff);
 }
 
+function appendHistorySample(
+  current: BandwidthSample[],
+  sample: BandwidthSample,
+): BandwidthSample[] {
+  return trimBandwidthHistory([...current, sample], sample.at);
+}
+
+function interfaceKeys(interfaces: NetInterfaceMetrics[]): string[] {
+  return [
+    TOTAL_INTERFACE_KEY,
+    ...interfaces.map((iface) => iface.name),
+  ];
+}
+
 export function NetworkStatusWidget({
   activeServerId,
   sessions,
@@ -54,27 +73,24 @@ export function NetworkStatusWidget({
   const session = activeServerId ? sessions[activeServerId] : null;
   const server = activeServerId ? findServer(tree, activeServerId) : null;
   const mountedRef = useRef(true);
-  const lastNetSampleRef = useRef<{
-    rxBytes: number;
-    txBytes: number;
-    at: number;
-  } | null>(null);
-  const [rxRate, setRxRate] = useState<number | null>(null);
-  const [txRate, setTxRate] = useState<number | null>(null);
+  const [metrics, setMetrics] = useState<ServerStatusMetrics | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
-  const [bandwidthHistory, setBandwidthHistory] = useState<BandwidthSample[]>([]);
+  const [histories, setHistories] = useState<Record<string, BandwidthSample[]>>(
+    {},
+  );
+  const [selectedInterface, setSelectedInterface] = useState(
+    TOTAL_INTERFACE_KEY,
+  );
   const maxBandwidthSlots = getBandwidthMaxSlots(pollIntervalMs);
 
   const fetchStatus = useCallback(async () => {
     if (!session || session.status !== "open") {
-      setRxRate(null);
-      setTxRate(null);
+      setMetrics(null);
       setError(null);
       setUpdatedAt(null);
-      setBandwidthHistory([]);
-      lastNetSampleRef.current = null;
+      setHistories({});
       return;
     }
 
@@ -85,35 +101,38 @@ export function NetworkStatusWidget({
       if (!mountedRef.current) return;
 
       const at = Date.parse(response.collectedAt) || Date.now();
-      const rates = computeNetRates(
-        response.metrics.netRxBytes,
-        response.metrics.netTxBytes,
-        lastNetSampleRef.current,
-        at,
-      );
-      if (rates.sample) {
-        lastNetSampleRef.current = rates.sample;
-      }
-
-      setRxRate(rates.netRxRate);
-      setTxRate(rates.netTxRate);
+      const nextMetrics = response.metrics;
+      setMetrics(nextMetrics);
       setUpdatedAt(response.collectedAt);
 
-      if (rates.netRxRate !== null && rates.netTxRate !== null) {
-        setBandwidthHistory((current) =>
-          trimBandwidthHistory(
-            [
-              ...current,
-              {
-                rx: rates.netRxRate!,
-                tx: rates.netTxRate!,
-                at,
-              },
-            ],
+      setHistories((current) => {
+        const next = { ...current };
+
+        if (
+          nextMetrics.netRxRate !== null &&
+          nextMetrics.netTxRate !== null
+        ) {
+          next[TOTAL_INTERFACE_KEY] = appendHistorySample(
+            next[TOTAL_INTERFACE_KEY] ?? [],
+            {
+              rx: nextMetrics.netRxRate,
+              tx: nextMetrics.netTxRate,
+              at,
+            },
+          );
+        }
+
+        for (const iface of nextMetrics.netInterfaces ?? []) {
+          if (iface.rxRate === null || iface.txRate === null) continue;
+          next[iface.name] = appendHistorySample(next[iface.name] ?? [], {
+            rx: iface.rxRate,
+            tx: iface.txRate,
             at,
-          ),
-        );
-      }
+          });
+        }
+
+        return next;
+      });
     } catch (err) {
       if (!mountedRef.current) return;
       setError(err instanceof Error ? err.message : t("status.collectFailed"));
@@ -130,9 +149,16 @@ export function NetworkStatusWidget({
   }, []);
 
   useEffect(() => {
-    setBandwidthHistory([]);
-    lastNetSampleRef.current = null;
+    setHistories({});
+    setSelectedInterface(TOTAL_INTERFACE_KEY);
   }, [session?.sessionId, pollIntervalMs]);
+
+  useEffect(() => {
+    const keys = interfaceKeys(metrics?.netInterfaces ?? []);
+    if (!keys.includes(selectedInterface)) {
+      setSelectedInterface(TOTAL_INTERFACE_KEY);
+    }
+  }, [metrics?.netInterfaces, selectedInterface]);
 
   useEffect(() => {
     void fetchStatus();
@@ -145,6 +171,25 @@ export function NetworkStatusWidget({
     return () => window.clearInterval(timer);
   }, [fetchStatus, pollIntervalMs, session?.sessionId, session?.status]);
 
+  const interfaces = metrics?.netInterfaces ?? [];
+  const selectedRates =
+    selectedInterface === TOTAL_INTERFACE_KEY
+      ? {
+          rx: metrics?.netRxRate ?? null,
+          tx: metrics?.netTxRate ?? null,
+        }
+      : {
+          rx:
+            interfaces.find((iface) => iface.name === selectedInterface)
+              ?.rxRate ?? null,
+          tx:
+            interfaces.find((iface) => iface.name === selectedInterface)
+              ?.txRate ?? null,
+        };
+  const selectedHistory = histories[selectedInterface] ?? [];
+  const hasRates = selectedRates.rx !== null && selectedRates.tx !== null;
+  const showInterfacePicker = interfaces.length > 0;
+
   if (!session) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-sm text-[var(--color-muted-foreground)]">
@@ -152,8 +197,6 @@ export function NetworkStatusWidget({
       </div>
     );
   }
-
-  const hasRates = rxRate !== null && txRate !== null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -194,13 +237,51 @@ export function NetworkStatusWidget({
       )}
 
       {isSessionAlive(session.status) && hasRates && (
-        <div className="min-h-0 flex-1 overflow-auto p-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
+          {showInterfacePicker && (
+            <div className="flex flex-wrap gap-1">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-sm px-2 py-1 text-[11px] transition-colors",
+                  selectedInterface === TOTAL_INTERFACE_KEY
+                    ? "bg-[var(--color-primary)] text-[var(--color-primary-foreground)]"
+                    : "bg-[var(--color-secondary)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+                )}
+                onClick={() => setSelectedInterface(TOTAL_INTERFACE_KEY)}
+              >
+                {t("network.total")}
+              </button>
+              {interfaces.map((iface) => (
+                <button
+                  key={iface.name}
+                  type="button"
+                  className={cn(
+                    "max-w-full truncate rounded-sm px-2 py-1 text-[11px] transition-colors",
+                    selectedInterface === iface.name
+                      ? "bg-[var(--color-primary)] text-[var(--color-primary-foreground)]"
+                      : "bg-[var(--color-secondary)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+                  )}
+                  title={iface.name}
+                  onClick={() => setSelectedInterface(iface.name)}
+                >
+                  {iface.name}
+                </button>
+              ))}
+            </div>
+          )}
+
           <NetworkBandwidthChart
-            history={bandwidthHistory}
+            history={selectedHistory}
+            interfaceLabel={
+              selectedInterface === TOTAL_INTERFACE_KEY
+                ? t("network.totalBandwidth")
+                : selectedInterface
+            }
             maxSlots={maxBandwidthSlots}
             pollIntervalMs={pollIntervalMs}
-            rxRate={rxRate}
-            txRate={txRate}
+            rxRate={selectedRates.rx}
+            txRate={selectedRates.tx}
           />
         </div>
       )}

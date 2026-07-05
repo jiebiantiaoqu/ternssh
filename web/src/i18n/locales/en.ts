@@ -209,6 +209,8 @@ export const en: Messages = {
     selectServer: "Select or connect a server to view network status",
     connectFirst: "Connect a terminal session before viewing network status",
     settingsTitle: "Network settings",
+    total: "Total",
+    totalBandwidth: "All interfaces",
   },
   quickCommands: {
     hint: "Commands run in the selected server's terminal.",

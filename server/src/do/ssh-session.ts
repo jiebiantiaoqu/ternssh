@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { getCredentialValue, getServer } from "../db/servers";
 import {
   computeCpuUsage,
+  computeInterfaceNetRates,
   computeNetRates,
   parseStatusOutput,
   STATUS_COMMAND,
@@ -28,6 +29,10 @@ export class SshSession extends DurableObject<Env> {
     null;
   private lastCpuSample: { total: number; idle: number; at: number } | null =
     null;
+  private lastNetInterfaceSamples: Record<
+    string,
+    { rxBytes: number; txBytes: number; at: number }
+  > | null = null;
   private statusCollectChain: Promise<void> = Promise.resolve();
 
   async fetch(request: Request): Promise<Response> {
@@ -190,9 +195,17 @@ export class SshSession extends DurableObject<Env> {
           if (cpuSample) {
             this.lastCpuSample = cpuSample;
           }
+          const { interfaces: netInterfaces, samples: netInterfaceSamples } =
+            computeInterfaceNetRates(
+              parsed.netInterfaces,
+              this.lastNetInterfaceSamples,
+              now,
+            );
+          this.lastNetInterfaceSamples = netInterfaceSamples;
           parsed.metrics.netRxRate = netRxRate;
           parsed.metrics.netTxRate = netTxRate;
           parsed.metrics.cpuUsedPercent = cpuUsedPercent;
+          parsed.metrics.netInterfaces = netInterfaces;
           return Response.json({
             serverId: session.server_id,
             collectedAt: new Date(now).toISOString(),
@@ -261,6 +274,7 @@ export class SshSession extends DurableObject<Env> {
     if (clearNetSample) {
       this.lastNetSample = null;
       this.lastCpuSample = null;
+      this.lastNetInterfaceSamples = null;
     }
   }
 

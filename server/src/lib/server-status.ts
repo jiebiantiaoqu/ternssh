@@ -22,6 +22,21 @@ export interface ServerStatusMetrics {
   netTxBytes: number | null;
   netRxRate: number | null;
   netTxRate: number | null;
+  netInterfaces: NetInterfaceMetrics[];
+}
+
+export interface NetInterfaceMetrics {
+  name: string;
+  rxBytes: number;
+  txBytes: number;
+  rxRate: number | null;
+  txRate: number | null;
+}
+
+export interface NetInterfaceSnapshot {
+  name: string;
+  rxBytes: number;
+  txBytes: number;
 }
 
 const STATUS_SCRIPT = [
@@ -30,6 +45,7 @@ const STATUS_SCRIPT = [
   'MT=$(awk \'/MemTotal/ {print $2; exit}\' /proc/meminfo 2>/dev/null); MA=$(awk \'/MemAvailable/ {print $2; exit}\' /proc/meminfo 2>/dev/null); [ -n "$MA" ] || MA=$(awk \'/MemFree/ {print $2; exit}\' /proc/meminfo 2>/dev/null); echo "MEM:${MT} ${MA}"',
   'echo "DISK:$(df -Pk / 2>/dev/null | awk \'NR==2 {print $2, $3, $4; exit}\')"',
   'echo "NET:$(awk \'$1 ~ /:/ {gsub(/:/,"",$1); if ($1!="lo") {rx+=$2; tx+=$10}} END {print rx, tx}\' /proc/net/dev 2>/dev/null)"',
+  'awk \'$1 ~ /:/ {gsub(/:/,"",$1); if ($1!="lo") print "IF:"$1" "$2" "$10}\' /proc/net/dev 2>/dev/null',
   'echo "UPTIME:$(cut -d" " -f1 /proc/uptime 2>/dev/null)"',
   'echo "OS:$(uname -sr 2>/dev/null)"',
 ].join("; ");
@@ -50,6 +66,7 @@ export function parseStatusOutput(output: string): {
   netTxBytes: number | null;
   cpuTotalJiffies: number | null;
   cpuIdleJiffies: number | null;
+  netInterfaces: NetInterfaceSnapshot[];
 } {
   const metrics: ServerStatusMetrics = {
     load1: null,
@@ -69,11 +86,13 @@ export function parseStatusOutput(output: string): {
     netTxBytes: null,
     netRxRate: null,
     netTxRate: null,
+    netInterfaces: [],
   };
   let netRxBytes: number | null = null;
   let netTxBytes: number | null = null;
   let cpuTotalJiffies: number | null = null;
   let cpuIdleJiffies: number | null = null;
+  const netInterfaces: NetInterfaceSnapshot[] = [];
 
   for (const line of output.split("\n")) {
     const trimmed = line.trim();
@@ -133,6 +152,17 @@ export function parseStatusOutput(output: string): {
         metrics.netTxBytes = netTxBytes;
         break;
       }
+      case "IF": {
+        if (!value) break;
+        const parts = value.split(/\s+/).filter(Boolean);
+        const name = parts[0];
+        const rxBytes = parseNumber(parts[1]);
+        const txBytes = parseNumber(parts[2]);
+        if (name && rxBytes !== null && txBytes !== null) {
+          netInterfaces.push({ name, rxBytes, txBytes });
+        }
+        break;
+      }
       case "UPTIME":
         metrics.uptimeSeconds = parseNumber(value.split(/\s+/)[0]);
         break;
@@ -142,7 +172,21 @@ export function parseStatusOutput(output: string): {
     }
   }
 
-  return { metrics, netRxBytes, netTxBytes, cpuTotalJiffies, cpuIdleJiffies };
+  netInterfaces.sort((a, b) => a.name.localeCompare(b.name));
+  metrics.netInterfaces = netInterfaces.map((iface) => ({
+    ...iface,
+    rxRate: null,
+    txRate: null,
+  }));
+
+  return {
+    metrics,
+    netRxBytes,
+    netTxBytes,
+    cpuTotalJiffies,
+    cpuIdleJiffies,
+    netInterfaces,
+  };
 }
 
 export function computeCpuUsage(
@@ -216,6 +260,44 @@ export function computeNetRates(
     netTxRate: deltaTx / elapsedSec,
     sample,
   };
+}
+
+export function computeInterfaceNetRates(
+  interfaces: NetInterfaceSnapshot[],
+  lastSamples: Record<
+    string,
+    { rxBytes: number; txBytes: number; at: number }
+  > | null,
+  now = Date.now(),
+): {
+  interfaces: NetInterfaceMetrics[];
+  samples: Record<string, { rxBytes: number; txBytes: number; at: number }>;
+} {
+  const samples = { ...(lastSamples ?? {}) };
+  const result = interfaces.map((iface) => {
+    const { netRxRate, netTxRate, sample } = computeNetRates(
+      iface.rxBytes,
+      iface.txBytes,
+      lastSamples?.[iface.name] ?? null,
+      now,
+    );
+    if (sample) {
+      samples[iface.name] = sample;
+    }
+    return {
+      ...iface,
+      rxRate: netRxRate,
+      txRate: netTxRate,
+    };
+  });
+
+  for (const name of Object.keys(samples)) {
+    if (!interfaces.some((iface) => iface.name === name)) {
+      delete samples[name];
+    }
+  }
+
+  return { interfaces: result, samples };
 }
 
 export function formatBytes(bytes: number | null): string {
