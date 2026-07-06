@@ -5,7 +5,6 @@
 * [Tech Stack](Tech-Stack)
 * [Quick Start](Getting-Started)
 * [Deployment](Deployment)
-* [Docker](Docker)
 * [Project Structure](Project-Structure)
 * [Architecture](Architecture)
 * [Dashboard Widgets](Widgets)

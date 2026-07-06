@@ -43,4 +43,7 @@ See [Wiki · Deployment](https://github.com/HaradaKashiwa/ternssh/wiki/en-Deploy
 
 **Open mode** is the default—no login required. For production, enable **Cloudflare Access** (Workers) or **HTTP Basic Auth** (Docker / self-hosted).
 
+- **Cloudflare Access**: create a Self-hosted app in Zero Trust, then set `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` on the Worker
+- **HTTP Basic Auth**: set both `BASICAUTH_USERNAME` and `BASICAUTH_PASSWORD` (Workers Dashboard or Docker env vars)
+
 See [Wiki · Authentication](https://github.com/HaradaKashiwa/ternssh/wiki/en-Security#authentication) for details.

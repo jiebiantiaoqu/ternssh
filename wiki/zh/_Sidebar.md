@@ -5,7 +5,6 @@
 * [技术栈](Tech-Stack)
 * [快速开始](Getting-Started)
 * [部署](Deployment)
-* [Docker 部署](Docker)
 * [项目结构](Project-Structure)
 * [系统架构](Architecture)
 * [仪表盘小部件](Widgets)

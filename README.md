@@ -43,4 +43,7 @@
 
 默认**开放模式**，无需登录。生产环境建议启用 **Cloudflare Access**（Workers）或 **HTTP Basic Auth**（Docker / 自托管）。
 
+- **Cloudflare Access**：Zero Trust 创建 Self-hosted 应用，在 Worker 变量中设置 `ACCESS_TEAM_DOMAIN` 与 `ACCESS_AUD`
+- **HTTP Basic Auth**：同时设置 `BASICAUTH_USERNAME` 与 `BASICAUTH_PASSWORD`（Workers Dashboard 或 Docker 环境变量）
+
 详见 [Wiki · 鉴权](https://github.com/HaradaKashiwa/ternssh/wiki/zh-Security#鉴权)。
