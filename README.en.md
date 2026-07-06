@@ -20,6 +20,12 @@
 </p>
 
 <p align="center">
+  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/HaradaKashiwa/ternssh">
+    <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" />
+  </a>
+</p>
+
+<p align="center">
   <a href="https://raw.githubusercontent.com/HaradaKashiwa/ternssh/refs/heads/main/docs/preview.png">
     <img src="docs/preview.png" alt="ternssh dashboard preview" width="1024" />
   </a>
@@ -30,10 +36,6 @@
 **ternssh** is an SSH management tool that runs on Cloudflare Edge. Full documentation lives in the **[Wiki](https://github.com/HaradaKashiwa/ternssh/wiki)**.
 
 ## Deployment
-
-<a href="https://deploy.workers.cloudflare.com/?url=https://github.com/HaradaKashiwa/ternssh">
-  <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" />
-</a>
 
 See [Wiki · Deployment](https://github.com/HaradaKashiwa/ternssh/wiki/en-Deployment) for details.
 
