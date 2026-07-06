@@ -140,6 +140,19 @@ function writeProductionFile(ids) {
   fs.writeFileSync(productionPath, content);
 }
 
+function stripManagedVarsFromProductionConfig() {
+  if (!fs.existsSync(productionPath)) return;
+
+  let content = fs.readFileSync(productionPath, "utf8");
+  const stripped = content.replace(
+    /\n\s*"vars"\s*:\s*\{[\s\S]*?\},/,
+    "",
+  );
+  if (stripped !== content) {
+    fs.writeFileSync(productionPath, stripped);
+  }
+}
+
 function patchWranglerJsonc(ids) {
   let content = fs.readFileSync(basePath, "utf8");
 
@@ -218,6 +231,7 @@ if (!ids) {
 }
 
 writeProductionFile(ids);
+stripManagedVarsFromProductionConfig();
 patchWranglerJsonc(ids);
 console.log(`Wrote ${path.relative(root, productionPath)}`);
 if (readIdsFromFile(basePath)?.d1 === ids.d1) {

@@ -57,3 +57,24 @@ export async function upsertUserFromEmail(
   if (!user) throw new Error("Failed to create user");
   return user;
 }
+
+export async function upsertUserFromAccessSub(
+  db: D1Database,
+  sub: string,
+): Promise<User> {
+  const existing = await getUserById(db, sub);
+  if (existing) return existing;
+
+  const displayName = `User ${sub.slice(0, 8)}`;
+
+  await db
+    .prepare(
+      "INSERT INTO users (id, email, display_name) VALUES (?, NULL, ?)",
+    )
+    .bind(sub, displayName)
+    .run();
+
+  const user = await getUserById(db, sub);
+  if (!user) throw new Error("Failed to create user");
+  return user;
+}

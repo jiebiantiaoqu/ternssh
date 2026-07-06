@@ -1,5 +1,9 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { ensureDefaultUser, upsertUserFromEmail } from "../db/users";
+import {
+  ensureDefaultUser,
+  upsertUserFromAccessSub,
+  upsertUserFromEmail,
+} from "../db/users";
 import type { User } from "../types";
 
 const DEFAULT_USER: User = {
@@ -28,7 +32,7 @@ function normalizeAud(raw: string): string {
 async function verifyAccessJwt(
   token: string,
   env: Env,
-): Promise<{ email: string }> {
+): Promise<{ email: string | null; sub: string | null; isServiceToken: boolean }> {
   if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) {
     throw new IdentityError(
       "ACCESS_TEAM_DOMAIN and ACCESS_AUD must be configured",
@@ -50,14 +54,12 @@ async function verifyAccessJwt(
     });
 
     const email = typeof payload.email === "string" ? payload.email : null;
-    if (!email) {
-      throw new IdentityError(
-        "Access JWT missing email claim (service tokens are not supported)",
-        401,
-      );
-    }
+    const sub = typeof payload.sub === "string" && payload.sub ? payload.sub : null;
+    const commonName =
+      typeof payload.common_name === "string" ? payload.common_name : null;
+    const isServiceToken = Boolean(commonName && !email && !sub);
 
-    return { email };
+    return { email, sub, isServiceToken };
   } catch (error) {
     if (error instanceof IdentityError) {
       throw error;
@@ -67,6 +69,31 @@ async function verifyAccessJwt(
       error instanceof Error ? error.message : "Access JWT verification failed";
     throw new IdentityError(`Access JWT verification failed: ${message}`, 401);
   }
+}
+
+async function resolveUserFromAccessClaims(
+  db: D1Database,
+  claims: { email: string | null; sub: string | null; isServiceToken: boolean },
+): Promise<User> {
+  if (claims.isServiceToken) {
+    throw new IdentityError(
+      "Access service tokens are not supported; sign in with an identity provider (email login)",
+      401,
+    );
+  }
+
+  if (claims.email) {
+    return upsertUserFromEmail(db, claims.email);
+  }
+
+  if (claims.sub) {
+    return upsertUserFromAccessSub(db, claims.sub);
+  }
+
+  throw new IdentityError(
+    "Access JWT missing email and sub claims; check your identity provider sends an email attribute",
+    401,
+  );
 }
 
 export async function resolveUser(request: Request, env: Env): Promise<User> {
@@ -79,8 +106,8 @@ export async function resolveUser(request: Request, env: Env): Promise<User> {
     throw new IdentityError("Missing Cf-Access-Jwt-Assertion header", 401);
   }
 
-  const { email } = await verifyAccessJwt(token, env);
-  return upsertUserFromEmail(env.DB, email);
+  const claims = await verifyAccessJwt(token, env);
+  return resolveUserFromAccessClaims(env.DB, claims);
 }
 
 export class IdentityError extends Error {

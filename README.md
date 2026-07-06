@@ -147,9 +147,17 @@ npm run deploy
 | SSH 会话 | Durable Objects (`SshSession`) |
 | 认证（可选） | Cloudflare Access |
 
-**开放模式**：`ACCESS_ENABLED=false`，直接访问。
+**开放模式**：在 Worker 控制台设置 `ACCESS_ENABLED=false`（或不设置该变量）。
 
-**Access 模式**：在 Zero Trust 创建 Self-hosted Application，配置 `ACCESS_ENABLED=true`、`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`。
+**Access 模式**：在 Zero Trust 创建 Self-hosted Application，并在 **Workers → Settings → Variables and Secrets** 中配置（不要写进 `wrangler.production.jsonc`，否则每次部署会被覆盖）：
+
+| 名称 | 类型 | 示例 |
+|------|------|------|
+| `ACCESS_ENABLED` | Variable | `true` |
+| `ACCESS_TEAM_DOMAIN` | Variable | `your-team.cloudflareaccess.com`（不要加 `https://`） |
+| `ACCESS_AUD` | Secret 或 Variable | 从 Access 应用复制的 AUD Tag（64 位 hex） |
+
+Access 应用的 **Application domain** 必须与你实际访问的域名一致（`workers.dev` 或自定义域名需分别创建应用并匹配 AUD）。
 
 ### Docker 部署（自托管）
 
@@ -399,7 +407,7 @@ npm run db:migrate         # 远程（deploy 已包含）
 
 - **`wrangler.jsonc`** — 本地开发（`wrangler dev`），D1 使用 `local-ternssh-db`
 - **`wrangler.production.jsonc.example`** — 生产配置模板
-- **`wrangler.production.jsonc`** — 你的生产配置（gitignore，从模板复制或脚本生成）
+- **`wrangler.production.jsonc`** — 你的生产配置（gitignore，从模板复制或脚本生成）；**不含 `vars`/密钥**，避免部署覆盖控制台配置
 
 根目录 `wrangler.jsonc` 示例：
 

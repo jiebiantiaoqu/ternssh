@@ -9,9 +9,7 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
-  "vars": {
-    "ACCESS_ENABLED": "false"
-  },
+  // Do not put vars/secrets here — set them in the Cloudflare dashboard so deploys do not overwrite them.
   "d1_databases": [
     {
       "binding": "DB",

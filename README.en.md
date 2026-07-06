@@ -147,9 +147,17 @@ npm run deploy
 | SSH sessions | Durable Objects (`SshSession`) |
 | Auth (optional) | Cloudflare Access |
 
-**Open mode**: `ACCESS_ENABLED=false`, access directly.
+**Open mode**: Set `ACCESS_ENABLED=false` in the Worker dashboard (or omit the variable).
 
-**Access mode**: Create a Self-hosted Application in Zero Trust; set `ACCESS_ENABLED=true`, `ACCESS_TEAM_DOMAIN`, and `ACCESS_AUD`.
+**Access mode**: Create a Self-hosted Application in Zero Trust, then configure in **Workers → Settings → Variables and Secrets** (do not put these in `wrangler.production.jsonc` or each deploy will overwrite them):
+
+| Name | Type | Example |
+|------|------|---------|
+| `ACCESS_ENABLED` | Variable | `true` |
+| `ACCESS_TEAM_DOMAIN` | Variable | `your-team.cloudflareaccess.com` (no `https://`) |
+| `ACCESS_AUD` | Secret or Variable | AUD Tag from your Access app (64-char hex) |
+
+The Access application **domain** must match the URL you actually visit (`workers.dev` vs custom domain need matching apps and AUD tags).
 
 ### Docker (self-hosted)
 
@@ -399,7 +407,7 @@ Reset all clears localStorage preferences and calls `POST /api/v1/me/reset` to w
 
 - **`wrangler.jsonc`** — local development (`wrangler dev`), D1 uses `local-ternssh-db`
 - **`wrangler.production.jsonc.example`** — production config template
-- **`wrangler.production.jsonc`** — your production config (gitignored; copy from template or generate via script)
+- **`wrangler.production.jsonc`** — your production config (gitignored; copy from template or generate via script); **no `vars`/secrets** so deploys do not overwrite dashboard settings
 
 Example root `wrangler.jsonc`:
 
