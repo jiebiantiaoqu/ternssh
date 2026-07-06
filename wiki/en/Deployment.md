@@ -4,6 +4,10 @@
 
 ## Deploy
 
+<a href="https://deploy.workers.cloudflare.com/?url=https://github.com/HaradaKashiwa/ternssh">
+  <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" />
+</a>
+
 Two Wrangler configs, different purposes:
 
 | File | Purpose | D1 | Vars |
@@ -73,24 +77,4 @@ Configure auth variables (`ACCESS_*`, `BASICAUTH_*`) **only in Workers Dashboard
 | SSH sessions | Durable Objects (`SshSession`) |
 | Auth (optional) | Cloudflare Access / HTTP Basic Auth | Optional gate; shared workspace after auth |
 
-**Open mode**: No auth variables configured below.
-
-**Access mode** (Cloudflare edge): Create a Self-hosted Application in Zero Trust, then set in **Workers → Settings → Variables and Secrets**:
-
-| Name | Type | Example |
-|------|------|---------|
-| `ACCESS_TEAM_DOMAIN` | Variable | `your-team.cloudflareaccess.com` (no `https://`) |
-| `ACCESS_AUD` | Secret or Variable | AUD Tag from your Access app (64-char hex) |
-
-**Basic Auth mode** (Docker / self-hosted): Set both username and password:
-
-| Name | Type | Notes |
-|------|------|-------|
-| `BASICAUTH_USERNAME` | Variable | HTTP Basic Auth username |
-| `BASICAUTH_PASSWORD` | Secret | HTTP Basic Auth password |
-
-Access and Basic Auth can be enabled together (both must pass). Configure in the dashboard or Docker env vars, not in `wrangler.production.jsonc`.
-
-When Basic Auth is enabled, **3** failed password attempts from the same IP lock access for **1 hour** (via `CF-Connecting-IP`; cleared on successful login).
-
-The Access application **domain** must match the URL you actually visit (`workers.dev` vs custom domain need matching apps and AUD tags).
+See [Security · Authentication](../en/Security.md#authentication) for auth setup.

@@ -20,12 +20,6 @@
 </p>
 
 <p align="center">
-  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/HaradaKashiwa/ternssh">
-    <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" />
-  </a>
-</p>
-
-<p align="center">
   <a href="https://raw.githubusercontent.com/HaradaKashiwa/ternssh/refs/heads/main/docs/preview.png">
     <img src="docs/preview.png" alt="ternssh dashboard preview" width="1024" />
   </a>
@@ -33,27 +27,18 @@
 
 ---
 
-**ternssh** is an SSH management tool that runs on Cloudflare Edge. Full documentation lives in the **[Wiki](wiki/README.md)** (auto-synced to [GitHub Wiki](https://github.com/HaradaKashiwa/ternssh/wiki)).
+**ternssh** is an SSH management tool that runs on Cloudflare Edge. Full documentation lives in the **[Wiki](https://github.com/HaradaKashiwa/ternssh/wiki)**.
 
-## Documentation
+## Deployment
 
-| Topic | Link |
-|-------|------|
-| Overview | [wiki/en/Home.md](wiki/en/Home.md) |
-| Features | [wiki/en/Features.md](wiki/en/Features.md) |
-| Tech stack | [wiki/en/Tech-Stack.md](wiki/en/Tech-Stack.md) |
-| Quick start | [wiki/en/Getting-Started.md](wiki/en/Getting-Started.md) |
-| Deployment | [wiki/en/Deployment.md](wiki/en/Deployment.md) |
-| Docker | [wiki/en/Docker.md](wiki/en/Docker.md) |
-| Project structure | [wiki/en/Project-Structure.md](wiki/en/Project-Structure.md) |
-| Architecture | [wiki/en/Architecture.md](wiki/en/Architecture.md) |
-| Dashboard widgets | [wiki/en/Widgets.md](wiki/en/Widgets.md) |
-| API overview | [wiki/en/API.md](wiki/en/API.md) |
-| Database | [wiki/en/Database.md](wiki/en/Database.md) |
-| Settings | [wiki/en/Settings.md](wiki/en/Settings.md) |
-| Security | [wiki/en/Security.md](wiki/en/Security.md) |
-| Configuration | [wiki/en/Configuration.md](wiki/en/Configuration.md) |
-| Roadmap | [wiki/en/Roadmap.md](wiki/en/Roadmap.md) |
-| License | [wiki/en/License.md](wiki/en/License.md) |
+<a href="https://deploy.workers.cloudflare.com/?url=https://github.com/HaradaKashiwa/ternssh">
+  <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" />
+</a>
 
-中文文档：[wiki/zh/](wiki/README.md#中文)
+See [Wiki · Deployment](https://github.com/HaradaKashiwa/ternssh/wiki/en-Deployment) for details.
+
+## Authentication
+
+**Open mode** is the default—no login required. For production, enable **Cloudflare Access** (Workers) or **HTTP Basic Auth** (Docker / self-hosted).
+
+See [Wiki · Authentication](https://github.com/HaradaKashiwa/ternssh/wiki/en-Security#authentication) for details.

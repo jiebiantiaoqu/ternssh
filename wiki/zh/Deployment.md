@@ -4,6 +4,10 @@
 
 ## 部署
 
+<a href="https://deploy.workers.cloudflare.com/?url=https://github.com/HaradaKashiwa/ternssh">
+  <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" />
+</a>
+
 项目有两份 Wrangler 配置，用途不同：
 
 | 文件 | 用途 | D1 | 变量 |
@@ -73,24 +77,4 @@ D1 可自动发现（账号下名为 `ternssh` 的数据库），或在 Build va
 | SSH 会话 | Durable Objects (`SshSession`) |
 | 认证（可选） | Cloudflare Access / HTTP Basic Auth | 可选门禁；通过后共享同一工作区 |
 
-**开放模式**：未配置下方任一认证方式。
-
-**Access 模式**（Cloudflare 边缘）：在 Zero Trust 创建 Self-hosted Application，并在 **Workers → Settings → Variables and Secrets** 中配置：
-
-| 名称 | 类型 | 示例 |
-|------|------|------|
-| `ACCESS_TEAM_DOMAIN` | Variable | `your-team.cloudflareaccess.com`（不要加 `https://`） |
-| `ACCESS_AUD` | Secret 或 Variable | 从 Access 应用复制的 AUD Tag（64 位 hex） |
-
-**Basic Auth 模式**（适合 Docker / 自托管）：同时设置用户名与密码：
-
-| 名称 | 类型 | 说明 |
-|------|------|------|
-| `BASICAUTH_USERNAME` | Variable | HTTP Basic Auth 用户名 |
-| `BASICAUTH_PASSWORD` | Secret | HTTP Basic Auth 密码 |
-
-Access 与 Basic Auth 可同时启用（需同时通过）。变量不要写进 `wrangler.production.jsonc`，在控制台或 Docker 环境变量中配置。
-
-Basic Auth 启用后，同一 IP 密码错误 **3 次**将锁定 **1 小时**（按 `CF-Connecting-IP` 识别；登录成功后清零）。
-
-Access 应用的 **Application domain** 必须与你实际访问的域名一致（`workers.dev` 或自定义域名需分别创建应用并匹配 AUD）。
+认证配置详见 [安全说明 · 鉴权](../zh/Security.md#鉴权)。
