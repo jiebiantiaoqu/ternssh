@@ -12,6 +12,14 @@
 
 点击按钮连接 GitHub 仓库并部署到 Cloudflare Workers。平台会自动检测 `npm run build` 与 `npm run deploy` 作为构建与发布命令。
 
+#### 更新
+
+新版本发布后，再次点击上方按钮，或在已 fork 的模板仓库中通过 **Workers Builds** 触发重新部署即可升级。
+
+配置 D1 数据库时，**选择已有的 `ternssh` 数据库**，不要新建。这样会保留服务器、凭据、仪表盘等数据；`npm run deploy` 会自动执行数据库迁移。
+
+若已在 Workers Builds 中配置过构建，通常只需推送新版本或手动触发一次构建，无需重复绑定数据库。
+
 生产环境鉴权（Cloudflare Access / Basic Auth）见 [安全说明 · 鉴权](../zh/Security.md#鉴权)。
 
 ### Docker（自托管）

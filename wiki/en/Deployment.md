@@ -12,6 +12,14 @@
 
 Click the button to connect your GitHub repo and deploy to Cloudflare Workers. The platform auto-detects `npm run build` and `npm run deploy` as the build and deploy commands.
 
+#### Updating
+
+When a new release is available, click the button above again, or trigger a redeploy from **Workers Builds** in your forked template repo.
+
+When configuring the D1 database, **select your existing `ternssh` database**—do not create a new one. This keeps your servers, credentials, dashboards, and other data. `npm run deploy` runs database migrations automatically.
+
+If Workers Builds is already set up, you usually only need to push the new version or manually trigger a build; you do not need to re-bind the database.
+
 For production auth (Cloudflare Access / Basic Auth), see [Security · Authentication](../en/Security.md#authentication).
 
 ### Docker (self-hosted)
