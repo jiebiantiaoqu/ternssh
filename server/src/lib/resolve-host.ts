@@ -37,6 +37,31 @@ export function isIpAddress(host: string): boolean {
   return isIPv4(normalized) || isIPv6(normalized);
 }
 
+function isValidDomainName(host: string): boolean {
+  if (
+    host.length > 253 ||
+    !/^[a-zA-Z0-9.-]+$/.test(host) ||
+    host.startsWith(".") ||
+    host.endsWith(".") ||
+    host.includes("..")
+  ) {
+    return false;
+  }
+
+  for (const label of host.split(".")) {
+    if (label.length === 0 || label.length > 63) return false;
+    if (label.startsWith("-") || label.endsWith("-")) return false;
+  }
+
+  return true;
+}
+
+export function isValidServerHost(host: string): boolean {
+  const normalized = stripBrackets(host.trim());
+  if (!normalized) return false;
+  return isIpAddress(normalized) || isValidDomainName(normalized);
+}
+
 function formatConnectHostname(address: string): string {
   return address.includes(":") ? `[${address}]` : address;
 }
@@ -73,13 +98,7 @@ export async function resolveHostAddress(host: string): Promise<string> {
     return normalized;
   }
 
-  if (
-    normalized.length > 253 ||
-    !/^[a-zA-Z0-9.-]+$/.test(normalized) ||
-    normalized.startsWith(".") ||
-    normalized.endsWith(".") ||
-    normalized.includes("..")
-  ) {
+  if (!isValidDomainName(normalized)) {
     throw new Error("无效的主机名");
   }
 

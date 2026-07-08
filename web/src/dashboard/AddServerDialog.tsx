@@ -9,6 +9,7 @@ import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { maybeSavePrivateKey } from "@/lib/saved-private-keys";
 import { maybeSavePassword } from "@/lib/saved-passwords";
+import { isValidServerHost } from "@/lib/validate-host";
 
 interface AddServerDialogProps {
   open: boolean;
@@ -57,6 +58,10 @@ export function AddServerDialog({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!isValidServerHost(host)) {
+      setError(t("addServer.invalidHost"));
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {

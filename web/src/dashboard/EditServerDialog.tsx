@@ -9,6 +9,7 @@ import { useT } from "@/i18n";
 import { api, type Server } from "@/lib/api";
 import { maybeSavePrivateKey } from "@/lib/saved-private-keys";
 import { maybeSavePassword } from "@/lib/saved-passwords";
+import { isValidServerHost } from "@/lib/validate-host";
 
 interface EditServerDialogProps {
   open: boolean;
@@ -58,6 +59,10 @@ export function EditServerDialog({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!isValidServerHost(host)) {
+      setError(t("addServer.invalidHost"));
+      return;
+    }
     const trimmedCredential = credential.trim();
     if (authType !== server.auth_type && !trimmedCredential) {
       setError(t("editServer.credentialRequiredOnAuthChange"));

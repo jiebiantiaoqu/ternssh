@@ -184,6 +184,7 @@ export const en: Messages = {
     privateKey: "Private key",
     privateKeyContent: "Private key content",
     createFailed: "Failed to create",
+    invalidHost: "Host must be a valid IP address or domain name",
   },
   copyServer: {
     title: "Duplicate server",

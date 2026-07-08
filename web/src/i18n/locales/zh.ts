@@ -174,6 +174,7 @@ export const zh = {
     privateKey: "私钥",
     privateKeyContent: "私钥内容",
     createFailed: "创建失败",
+    invalidHost: "主机必须是有效的 IP 地址或域名",
   },
   copyServer: {
     title: "复制服务器",

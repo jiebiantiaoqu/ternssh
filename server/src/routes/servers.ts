@@ -11,9 +11,19 @@ import {
   updateServer,
 } from "../db/servers";
 import { jsonError } from "../lib/http";
+import { isValidServerHost } from "../lib/resolve-host";
 import type { Variables } from "../types";
 
 export const serverRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+function validateHost(host: string | undefined): string | null {
+  const trimmed = host?.trim();
+  if (!trimmed) return "host is required";
+  if (!isValidServerHost(trimmed)) {
+    return "host must be a valid IP address or domain name";
+  }
+  return null;
+}
 
 serverRoutes.get("/tree", async (c) => {
   const user = c.get("user");
@@ -129,7 +139,8 @@ serverRoutes.post("/", async (c) => {
   }>();
 
   if (!body.name?.trim()) return jsonError(c, 400, "name is required");
-  if (!body.host?.trim()) return jsonError(c, 400, "host is required");
+  const hostError = validateHost(body.host);
+  if (hostError) return jsonError(c, 400, hostError);
   if (!body.username?.trim()) return jsonError(c, 400, "username is required");
   if (!body.credential?.trim()) {
     return jsonError(c, 400, "credential is required");
@@ -146,7 +157,7 @@ serverRoutes.post("/", async (c) => {
   try {
     const server = await createServer(c.env.DB, user.id, {
       name: body.name.trim(),
-      host: body.host.trim(),
+      host: body.host!.trim(),
       port,
       username: body.username.trim(),
       auth_type: body.auth_type,
@@ -177,7 +188,8 @@ serverRoutes.post("/:id/copy", async (c) => {
   }>();
 
   if (!body.name?.trim()) return jsonError(c, 400, "name is required");
-  if (!body.host?.trim()) return jsonError(c, 400, "host is required");
+  const hostError = validateHost(body.host);
+  if (hostError) return jsonError(c, 400, hostError);
   if (!body.username?.trim()) return jsonError(c, 400, "username is required");
   if (body.auth_type !== "password" && body.auth_type !== "private_key") {
     return jsonError(c, 400, "auth_type must be password or private_key");
@@ -191,7 +203,7 @@ serverRoutes.post("/:id/copy", async (c) => {
   try {
     const server = await copyServer(c.env.DB, user.id, sourceId, {
       name: body.name.trim(),
-      host: body.host.trim(),
+      host: body.host!.trim(),
       port,
       username: body.username.trim(),
       auth_type: body.auth_type,
@@ -233,6 +245,11 @@ serverRoutes.put("/:id", async (c) => {
     if (!Number.isInteger(body.port) || body.port < 1 || body.port > 65535) {
       return jsonError(c, 400, "port must be between 1 and 65535");
     }
+  }
+
+  if (body.host !== undefined) {
+    const hostError = validateHost(body.host);
+    if (hostError) return jsonError(c, 400, hostError);
   }
 
   try {
