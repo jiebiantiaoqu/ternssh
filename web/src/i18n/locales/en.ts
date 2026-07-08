@@ -158,7 +158,7 @@ export const en: Messages = {
   terminal: {
     emptyHint: "Select a server and connect to open a terminal.",
     noTabsHint: "Click + to open another terminal tab.",
-    suggestHint: "Suggestions appear as you type. Tab to complete, ↑↓ to cycle",
+    suggestHint: "Gray inline hints appear after the cursor. Tab to complete, ↑↓ to cycle",
     tab: "Terminal {index}",
     tabCount: "{count} terminals · {status}",
     newTab: "New terminal",

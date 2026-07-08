@@ -147,7 +147,7 @@ export const zh = {
   terminal: {
     emptyHint: "选择服务器并连接以打开终端。",
     noTabsHint: "点击 + 新建终端标签页。",
-    suggestHint: "输入时显示命令联想，Tab 补全，↑↓ 切换候选项",
+    suggestHint: "输入时在光标后显示灰色联想，Tab 补全，↑↓ 切换候选项",
     tab: "终端 {index}",
     tabCount: "{count} 个终端 · {status}",
     newTab: "新建终端",

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { TerminalSuggestionBar } from "@/components/TerminalSuggestionBar";
+import { TerminalGhostSuggestion } from "@/components/TerminalGhostSuggestion";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { usePersonalization, type TerminalThemeColors } from "@/theme";
@@ -117,8 +117,10 @@ function SessionPane({
   t,
   terminalColors,
 }: SessionPaneProps) {
+  const hostRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
+  const [terminalInstance, setTerminalInstance] = useState<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const runCommandRef = useRef<(command: string) => boolean>(() => false);
@@ -184,11 +186,13 @@ function SessionPane({
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    setTerminalInstance(terminal);
 
     return () => {
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
+      setTerminalInstance(null);
     };
   }, [session.sessionId]);
 
@@ -416,6 +420,7 @@ function SessionPane({
 
   return (
     <div
+      ref={hostRef}
       className={cn(
         "terminal-widget-host absolute inset-0 overflow-hidden p-1",
         !active && "invisible pointer-events-none",
@@ -423,10 +428,12 @@ function SessionPane({
     >
       <div ref={containerRef} className="h-full w-full" />
       {active && partial.length > 0 && suggestions.length > 0 && (
-        <TerminalSuggestionBar
-          suggestions={suggestions}
-          partial={partial}
+        <TerminalGhostSuggestion
           activeIndex={activeSuggestionIndex}
+          hostRef={hostRef}
+          partial={partial}
+          suggestions={suggestions}
+          terminal={terminalInstance}
         />
       )}
     </div>
