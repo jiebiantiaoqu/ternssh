@@ -16,10 +16,12 @@ import {
 } from "@/lib/session-status-bridge";
 import { registerTerminalRunner } from "@/lib/terminal-bridge";
 import {
+  applyInputToDraft,
   completionSuffix,
   findTerminalSuggestions,
   pushTerminalHistory,
-  readTerminalPartialCommand,
+  shouldSyncDraftFromEcho,
+  syncDraftFromTerminal,
 } from "@/lib/terminal-suggestions";
 import { cn } from "@/lib/utils";
 import type { SessionCloseReason, TerminalWidgetProps } from "./types";
@@ -127,15 +129,13 @@ function SessionPane({
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const suggestionsRef = useRef<string[]>([]);
   const activeSuggestionIndexRef = useRef(0);
+  const draftRef = useRef("");
   suggestionsRef.current = suggestions;
   activeSuggestionIndexRef.current = activeSuggestionIndex;
   onStatusChangeRef.current = onStatusChange;
   onClosedRef.current = onClosed;
 
-  const refreshSuggestions = () => {
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    const nextPartial = readTerminalPartialCommand(terminal);
+  const updateSuggestions = (nextPartial: string) => {
     const nextSuggestions = findTerminalSuggestions(
       session.serverId,
       nextPartial,
@@ -149,11 +149,12 @@ function SessionPane({
     const terminal = terminalRef.current;
     const ws = wsRef.current;
     if (!terminal || !ws || ws.readyState !== WebSocket.OPEN) return;
-    const current = readTerminalPartialCommand(terminal);
+    const current = draftRef.current;
     const suffix = completionSuffix(current, suggestion);
     if (!suffix) return;
     ws.send(suffix);
-    window.requestAnimationFrame(refreshSuggestions);
+    draftRef.current = current + suffix;
+    updateSuggestions(draftRef.current);
   };
 
   useEffect(() => {
@@ -210,6 +211,7 @@ function SessionPane({
     wsRef.current = ws;
     onStatusChangeRef.current("connecting");
     terminal.reset();
+    draftRef.current = "";
     if (session.reconnectAttempt && session.reconnectAttempt > 0) {
       terminal.writeln(
         t("session.reconnecting", {
@@ -301,31 +303,41 @@ function SessionPane({
           if (control.kind === "ready" && !ready) {
             ready = true;
             terminal.reset();
+            draftRef.current = "";
             sendResize();
             return;
           }
           return;
         }
         terminal.write(data);
+        if (shouldSyncDraftFromEcho(data)) {
+          const prev = draftRef.current;
+          draftRef.current = syncDraftFromTerminal(terminal, draftRef.current);
+          if (draftRef.current !== prev) {
+            updateSuggestions(draftRef.current);
+          }
+        }
       })();
     };
 
     const onData = terminal.onData((input) => {
       if (input.includes("\r") || input === "\n") {
-        const command = readTerminalPartialCommand(terminal);
-        if (command.trim()) {
-          pushTerminalHistory(session.serverId, command.trim());
+        const command = draftRef.current.trim();
+        if (command) {
+          pushTerminalHistory(session.serverId, command);
         }
+        draftRef.current = "";
         setSuggestions([]);
         setPartial("");
         setActiveSuggestionIndex(0);
+      } else {
+        draftRef.current = applyInputToDraft(draftRef.current, input);
+        updateSuggestions(draftRef.current);
       }
 
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(input);
       }
-
-      window.requestAnimationFrame(refreshSuggestions);
     });
 
     terminal.attachCustomKeyEventHandler((event) => {
@@ -357,7 +369,7 @@ function SessionPane({
         !event.altKey &&
         !event.metaKey
       ) {
-        const current = readTerminalPartialCommand(term);
+        const current = draftRef.current;
         const matches = findTerminalSuggestions(session.serverId, current);
         if (matches.length === 0) return true;
 
@@ -409,7 +421,7 @@ function SessionPane({
       )}
     >
       <div ref={containerRef} className="h-full w-full" />
-      {active && suggestions.length > 0 && (
+      {active && partial.length > 0 && suggestions.length > 0 && (
         <TerminalSuggestionBar
           suggestions={suggestions}
           partial={partial}

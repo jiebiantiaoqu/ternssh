@@ -72,7 +72,7 @@ export function getTerminalHistory(serverId: string): string[] {
 
 export function pushTerminalHistory(serverId: string, command: string): void {
   const trimmed = command.trim();
-  if (!trimmed || trimmed.startsWith(" ")) return;
+  if (!trimmed || trimmed.startsWith(" ") || /[$#>❯➜λ]\s*$/.test(trimmed)) return;
 
   const store = readStore();
   const existing = store[serverId] ?? [];
@@ -105,11 +105,49 @@ function extractCommandTail(line: string): string {
       start = index + marker.length;
     }
   }
+
+  // Prompts like root@host:~# often omit the trailing space after $ or #.
+  const endPrompt = line.match(/[$#](?:\s*)?$/);
+  if (endPrompt?.index !== undefined) {
+    const cut = endPrompt.index + endPrompt[0].length;
+    if (cut > start) {
+      start = cut;
+    }
+  }
+
   return line.slice(start);
 }
 
 export function readTerminalPartialCommand(terminal: Terminal): string {
   return extractCommandTail(readLineText(terminal));
+}
+
+/** Apply a single onData payload to the local input draft (echo may arrive later). */
+export function applyInputToDraft(draft: string, input: string): string {
+  if (input.includes("\r") || input === "\n") return "";
+  if (input === "\x7f" || input === "\x08") return draft.slice(0, -1);
+  if (input === "\x15" || input === "\x03") return "";
+  if (input.startsWith("\x1b") || input === "\t") return draft;
+  if (/[\x00-\x1f\x7f]/.test(input)) return draft;
+  return draft + input;
+}
+
+/** Reconcile local draft with the terminal buffer after server echo. */
+export function syncDraftFromTerminal(
+  terminal: Terminal,
+  draft: string,
+): string {
+  const fromBuffer = readTerminalPartialCommand(terminal);
+  if (draft.startsWith(fromBuffer) && draft.length > fromBuffer.length) {
+    return draft;
+  }
+  return fromBuffer;
+}
+
+/** True when WebSocket output is likely prompt/input echo, not bulk command output. */
+export function shouldSyncDraftFromEcho(data: string): boolean {
+  if (data.startsWith("\x1b")) return true;
+  return !data.includes("\n") && !data.includes("\r");
 }
 
 export function findTerminalSuggestions(
@@ -127,7 +165,7 @@ export function findTerminalSuggestions(
   ];
 
   if (!normalized) {
-    return pool.slice(0, MAX_SUGGESTIONS);
+    return [];
   }
 
   const lower = normalized.toLowerCase();
