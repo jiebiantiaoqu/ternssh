@@ -32,7 +32,12 @@ export function detectDefaultLocale(): Locale {
 }
 
 export const SETTINGS_RESET_EVENT = "ternssh:settings-reset";
+export const LAYOUT_IMPORTED_EVENT = "ternssh:layout-imported";
 
 export function dispatchSettingsResetEvent(): void {
   window.dispatchEvent(new CustomEvent(SETTINGS_RESET_EVENT));
+}
+
+export function dispatchLayoutImportedEvent(): void {
+  window.dispatchEvent(new CustomEvent(LAYOUT_IMPORTED_EVENT));
 }

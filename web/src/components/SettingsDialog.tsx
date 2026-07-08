@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { LanguageSelect } from "@/components/LanguageSelect";
+import { LayoutImportExportSection } from "@/components/LayoutImportExportSection";
 import { SiteNameField } from "@/components/SiteNameField";
 import { Modal } from "@/components/Modal";
 import { PersonalizationSection } from "@/components/PersonalizationSection";
@@ -136,6 +137,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </div>
               <SiteNameField />
               <LanguageSelect />
+              <LayoutImportExportSection />
 
               <div className="border-t border-[var(--color-border)] pt-6">
                 <h3 className="text-sm font-semibold">

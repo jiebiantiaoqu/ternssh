@@ -77,6 +77,21 @@ export const en: Messages = {
     resetAllFinalAction: "Confirm reset",
     resetAllResetting: "Resetting…",
     resetAllFailed: "Failed to reset settings",
+    layoutTitle: "Dashboard layout",
+    layoutHint:
+      "Export or import widget arrangement and widget settings. Servers and credentials are not included.",
+    layoutExportAction: "Export layout",
+    layoutExporting: "Exporting…",
+    layoutExportSuccess: "Layout exported",
+    layoutExportFailed: "Failed to export layout",
+    layoutImportPick: "Import layout",
+    layoutImportAction: "Apply layout",
+    layoutImporting: "Importing…",
+    layoutImportSuccess: "Layout imported",
+    layoutImportFailed: "Failed to import layout",
+    layoutImportConfirm:
+      "Replace the current dashboard layout with the imported file?",
+    layoutImportSummary: "{count} widgets from “{name}”",
   },
   security: {
     loading: "Loading...",

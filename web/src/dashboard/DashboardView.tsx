@@ -42,7 +42,7 @@ import {
   serializeQuickCommandsConfig,
   type QuickCommandTargetMode,
 } from "@/lib/quick-commands-config";
-import { SETTINGS_RESET_EVENT } from "@/lib/app-settings";
+import { LAYOUT_IMPORTED_EVENT, SETTINGS_RESET_EVENT } from "@/lib/app-settings";
 import { newId } from "@/lib/id";
 import {
   releaseAllSftpClients,
@@ -203,8 +203,16 @@ export function DashboardView() {
       setActiveSessionId(null);
       void load();
     };
+    const onLayoutImported = () => {
+      isEditingRef.current = false;
+      void load();
+    };
     window.addEventListener(SETTINGS_RESET_EVENT, onSettingsReset);
-    return () => window.removeEventListener(SETTINGS_RESET_EVENT, onSettingsReset);
+    window.addEventListener(LAYOUT_IMPORTED_EVENT, onLayoutImported);
+    return () => {
+      window.removeEventListener(SETTINGS_RESET_EVENT, onSettingsReset);
+      window.removeEventListener(LAYOUT_IMPORTED_EVENT, onLayoutImported);
+    };
   }, [load]);
 
   useEffect(() => {
